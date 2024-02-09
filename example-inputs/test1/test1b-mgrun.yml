@@ -20,7 +20,7 @@ outputformat   : 'BIN'
 # tstop = stop time for the problem
 # if dtstart is >0 then it overrides the internal calculation for the first time step; used to match fortran KO output
 # dtoutput = output snapshot frequency in time
-tstop      : 2.0E-6
+tstop      : 1.0E-6
 dtstart    : 0.001E-6
 dtoutput   : 0.01E-6
 #

@@ -2153,6 +2153,38 @@ class DomainClass:
         # use values at n+2 to create the fracture for the start of the next time step
         # DEBUG: FRACTURE NEEDS MORE TESTING
         #
+        
+        #######################################################################
+        #######################   NEW CODE ADDED HERE    ######################
+        #######################################################################
+        
+        # the point of theis block of code is to allow for material interfaces to separate
+        
+        # this method has a number of issues, particularly at the boundary of the fracture
+        # with the density and temperature
+        
+        # to run pyKO in its original form just comment out this block of code
+        
+        # loop over the array of material id's
+        for idx in range(1, len(self.matid)): 
+            
+            # ignore if void space is involved (id of -1)
+            if int(self.matid[idx-1]) == -1 or int(self.matid[idx]) == -1: 
+                continue
+                
+            # look for where there are adjacent nodes of different materials (not involving voids)
+            elif self.matid[idx-1] != self.matid[idx]: 
+                
+                # if the pressure on both sides of the interface is negative a fracture is created
+                if (self.pres[3, idx-1] < 0) and (self.pres[3, idx+1] < 0):
+                    imat = int(self.matid[idx-1])
+                    isurf = idx-1
+                    nextibc = max(self.ibc)+1
+                    self.createinteriorfracture(run,imat,isurf,nextibc)
+                    
+        #######################################################################
+        #######################################################################             
+        
         for imat in np.arange(run.nmat):
             # v0.6.2 Each material has a fracture Boolean flag.
             if run.ifrac[imat].usefrac:
