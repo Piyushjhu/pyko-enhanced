@@ -1,3 +1,7 @@
+# WARNING!
+
+This version attempts to implement a very crude interface separation criteria. The method has not been rigorously implemented nor has its accuracy been verified. Interface separation was added to help more accurately plan experiments, and the results should only be interpreted as approximations. 
+
 # GENERAL INFORMATION
 
 	**Program Name:**	pyKO
