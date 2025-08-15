@@ -1,0 +1,5 @@
+# Ignore large binary output files
+*.dat
+__pycache__/
+.DS_Store
+*.pyc
