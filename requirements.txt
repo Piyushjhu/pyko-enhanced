@@ -1,0 +1,17 @@
+# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+# platform: osx-arm64
+ffmpeg=6.0.0=gpl_h474fd3e_103
+holoviews=1.16.2=py_0
+hvplot=0.8.4=py_0
+ipympl=0.9.3=pyhd8ed1ab_0
+jupyterlab=3.6.3=pyhd8ed1ab_0
+matplotlib=3.7.1=py311ha1ab1f8_0
+numpy=1.25.0=py311hb8f3215_0
+pandas=2.0.2=py311h9e438b8_0
+pint=0.22=pyhd8ed1ab_1
+python=3.11.4=h47c9636_0_cpython
+scipy=1.11.0=py311h93d07a4_0
+yaml=0.2.5=h3422bc3_2
+selenium==3.141.0
+pscript==0.7.5
