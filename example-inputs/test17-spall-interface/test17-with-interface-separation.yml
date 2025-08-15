@@ -106,7 +106,7 @@ mat1:
         xstart : -0.0001
         length :  0.0001    # 100 μm = 0.0001 m
     init:
-        up0    : 100.0  # Impact velocity
+        up0    : 800.0  # Impact velocity
         rho0   : 2700.0
         p0     : 0.0
         e0     : 0.0
@@ -140,7 +140,7 @@ mat2:
         rho0   : 8930.0
         p0     : 0.0
         e0     : 0.0
-        t0     : 298.0
+        t0     : 298.0 
     eos:
         name   : 'Cu target'
         type   : 'MGR'
@@ -155,7 +155,7 @@ mat2:
         ys     : 95.6E6      # Copper yield strength
     frac:
         # Fracture Parameters:
-        pfrac  : 1.5E9       # Spall threshold: 1.9 GPa tensile stress limit  
+        pfrac  : 3.0E9     # Spall threshold: 3.0 GPa (3E9 Pa)  
         nrhomin : 1          # Max distension: NO density reduction allowed (ρ_min/ρ_ref = 1.0)
                              # Perfectly brittle - fractures immediately upon any expansion
 #

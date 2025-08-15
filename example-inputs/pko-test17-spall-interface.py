@@ -125,28 +125,56 @@ print("MATERIAL PROPERTIES:")
 print(f"{'Property':<25} {'Al Flyer':<15} {'Cu Target':<15} {'Unit':<10}")
 print("-"*70)
 
-# Get material properties from run object (use safer approach)
-# Extract ALL parameters from YAML configuration - NO hardcoded values
-cu_spall_threshold_from_yaml = 1.0  # Only used if extraction fails
-al_spall_threshold_from_yaml = 0.276  # Only used if extraction fails
-al_thickness_um = 500  # Only used if extraction fails
-cu_thickness_um = 1000  # Only used if extraction fails
-al_thickness_str = "500 μm"  # Fallback if extraction fails
-cu_thickness_str = "1 mm"  # Fallback if extraction fails
-spall_density_threshold = 0.95  # Only used if extraction fails
-al_nrhomin = 0.9  # Only used if extraction fails
-cu_nrhomin = 1.0  # Only used if extraction fails
+# Get material properties from run object - MANDATORY YAML EXTRACTION
+# NO FALLBACK VALUES - Script must fail if YAML parsing fails
 
 try:
-    mat1_props = run.materials[0]  # Al flyer
-    mat2_props = run.materials[1]  # Cu target
-    print("✅ Successfully extracted material properties from YAML")
+    print(f"Debug: Number of materials in run object: {run.nmat}")
+    print(f"Debug: Available run attributes: {[attr for attr in dir(run) if not attr.startswith('_')]}")
     
-    # Extract material thicknesses from YAML config
-    al_length_m = mat1_props.mesh.length  # meters
-    cu_length_m = mat2_props.mesh.length  # meters
-    al_thickness_um = al_length_m * 1e6  # Convert to μm
-    cu_thickness_um = cu_length_m * 1e6  # Convert to μm
+    # Check if we have the expected number of materials
+    if run.nmat < 2:
+        raise ValueError(f"Expected 2 materials, found {run.nmat}")
+    
+    # Access material properties using pyKO's actual structure
+    mat1_fracture = run.ifrac[0]  # Al flyer fracture properties
+    mat2_fracture = run.ifrac[1]  # Cu target fracture properties
+    mat1_strength = run.istr[0]   # Al flyer strength properties  
+    mat2_strength = run.istr[1]   # Cu target strength properties
+    
+    print("✅ Successfully extracted material properties from YAML")
+    print(f"Debug: Mat1 fracture object: {type(mat1_fracture)}")
+    print(f"Debug: Mat2 fracture object: {type(mat2_fracture)}")
+    print(f"Debug: Mat1 fracture attrs: {dir(mat1_fracture)}")
+    print(f"Debug: Mat2 fracture attrs: {dir(mat2_fracture)}")
+    
+    # Try to access pfrac values
+    print(f"Debug: Mat1 pfrac value: {mat1_fracture.pfrac}")
+    print(f"Debug: Mat2 pfrac value: {mat2_fracture.pfrac}")
+    
+    # Check pyKO units and debug extraction
+    print(f"Debug: run.ilength raw values: {run.ilength}")
+    print(f"Debug: run.irhostart raw values: {run.irhostart}")
+    print(f"Debug: mat1_eos.c0 raw: {run.ieos[0].c0}")
+    print(f"Debug: mat2_eos.c0 raw: {run.ieos[1].c0}")
+    
+    # Extract material thicknesses from run object arrays
+    # PyKO stores lengths in code units (check what units are being used)
+    al_length_raw = run.ilength[0]  # Raw units from pyKO
+    cu_length_raw = run.ilength[1]  # Raw units from pyKO
+    
+    print(f"Debug: Raw lengths - Al: {al_length_raw}, Cu: {cu_length_raw}")
+    
+    # PyKO uses Wilkins book units: lengths in cm
+    al_length_cm = al_length_raw  # Already in cm
+    cu_length_cm = cu_length_raw  # Already in cm
+    
+    # Convert cm to μm for display
+    al_thickness_um = al_length_cm * 1e4  # cm to μm
+    cu_thickness_um = cu_length_cm * 1e4  # cm to μm
+    
+    print(f"Debug: Lengths in cm - Al: {al_length_cm} cm, Cu: {cu_length_cm} cm")
+    print(f"Debug: Converted to μm - Al: {al_thickness_um} μm, Cu: {cu_thickness_um} μm")
     
     # Create formatted strings for display
     if al_thickness_um >= 1000:
@@ -159,16 +187,23 @@ try:
     else:
         cu_thickness_str = f"{cu_thickness_um:.0f} μm"
     
-    # Extract ALL material parameters from YAML config
-    # Spall thresholds (fracture pressures)
-    al_pfrac_pa = mat1_props.fracture.pfrac  # Pa
-    cu_pfrac_pa = mat2_props.fracture.pfrac  # Pa
-    al_spall_threshold_from_yaml = al_pfrac_pa / 1e9  # Convert Pa to GPa
-    cu_spall_threshold_from_yaml = cu_pfrac_pa / 1e9  # Convert Pa to GPa
+    # Extract ALL material parameters from YAML config using pyKO structure
+    # Spall thresholds (fracture pressures) - check units!
+    al_pfrac_raw = mat1_fracture.pfrac  
+    cu_pfrac_raw = mat2_fracture.pfrac  
+    
+    print(f"Debug: Raw pfrac values - Al: {al_pfrac_raw}, Cu: {cu_pfrac_raw}")
+    
+    # PyKO uses Wilkins book units: pressures in Mbar (1 Mbar = 100 GPa)
+    al_spall_threshold_from_yaml = al_pfrac_raw * 100.0  # Convert Mbar to GPa
+    cu_spall_threshold_from_yaml = cu_pfrac_raw * 100.0  # Convert Mbar to GPa
+    print("Debug: Converting pfrac from Mbar to GPa (1 Mbar = 100 GPa)")
+    
+    print(f"Debug: Converted spall thresholds - Al: {al_spall_threshold_from_yaml:.6f} GPa, Cu: {cu_spall_threshold_from_yaml:.6f} GPa")
     
     # Density distension limits (nrhomin)
-    al_nrhomin = mat1_props.fracture.nrhomin
-    cu_nrhomin = mat2_props.fracture.nrhomin
+    al_nrhomin = mat1_fracture.nrhomin
+    cu_nrhomin = mat2_fracture.nrhomin
     
     # Calculate spall density threshold from nrhomin (use the more restrictive one)
     # If any material has nrhomin = 1.0 (perfectly brittle), we need to handle it specially
@@ -196,55 +231,81 @@ try:
     print("✅ ALL PARAMETERS EXTRACTED FROM YAML - NO HARDCODED VALUES")
 
     print(f"{'Thickness':<25} {al_thickness_str:<15} {cu_thickness_str:<15} {'-':<10}")
-    print(f"{'Cells':<25} {mat1_props.mesh.ncells:<15} {mat2_props.mesh.ncells:<15} {'count':<10}")
-    print(f"{'Initial velocity':<25} {mat1_props.init.up0:<15.1f} {mat2_props.init.up0:<15.1f} {'m/s':<10}")
-    print(f"{'Density':<25} {mat1_props.init.rho0:<15.0f} {mat2_props.init.rho0:<15.0f} {'kg/m³':<10}")
-    print(f"{'Sound speed (c0)':<25} {mat1_props.eos.c0:<15.0f} {mat2_props.eos.c0:<15.0f} {'m/s':<10}")
-    print(f"{'EOS parameter (s1)':<25} {mat1_props.eos.s1:<15.2f} {mat2_props.eos.s1:<15.2f} {'-':<10}")
-    print(f"{'Gruneisen (gamma0)':<25} {mat1_props.eos.gamma0:<15.2f} {mat2_props.eos.gamma0:<15.2f} {'-':<10}")
-    print(f"{'Specific heat (cv)':<25} {mat1_props.eos.cv:<15.0f} {mat2_props.eos.cv:<15.0f} {'J/kg/K':<10}")
+    print(f"{'Cells':<25} {run.inodes[0]//2:<15} {run.inodes[1]//2:<15} {'count':<10}")  # inodes = 2x cells
+    
+    # PyKO units: velocity in cm/μs, convert to m/s
+    al_vel_ms = run.iupstart[0] * 10000  # cm/μs to m/s (cm/μs * 1e6 μs/s * 1e-2 m/cm = 1e4)
+    cu_vel_ms = run.iupstart[1] * 10000  # cm/μs to m/s
+    print(f"{'Initial velocity':<25} {al_vel_ms:<15.1f} {cu_vel_ms:<15.1f} {'m/s':<10}")
+    
+    # PyKO units: density in g/cm³, convert to kg/m³
+    al_rho_kgm3 = run.irhostart[0] * 1000  # g/cm³ to kg/m³
+    cu_rho_kgm3 = run.irhostart[1] * 1000  # g/cm³ to kg/m³
+    print(f"{'Density':<25} {al_rho_kgm3:<15.0f} {cu_rho_kgm3:<15.0f} {'kg/m³':<10}")
+    
+    # Get EOS objects
+    mat1_eos = run.ieos[0]  # Al flyer EOS
+    mat2_eos = run.ieos[1]  # Cu target EOS
+    
+    # PyKO units: sound speed in cm/μs, convert to m/s
+    al_c0_ms = mat1_eos.c0 * 10000  # cm/μs to m/s
+    cu_c0_ms = mat2_eos.c0 * 10000  # cm/μs to m/s
+    print(f"{'Sound speed (c0)':<25} {al_c0_ms:<15.0f} {cu_c0_ms:<15.0f} {'m/s':<10}")
+    print(f"{'EOS parameter (s1)':<25} {mat1_eos.s1:<15.2f} {mat2_eos.s1:<15.2f} {'-':<10}")
+    print(f"{'Gruneisen (gamma0)':<25} {mat1_eos.gamma0:<15.2f} {mat2_eos.gamma0:<15.2f} {'-':<10}")
+    print(f"{'Specific heat (cv)':<25} {mat1_eos.cv:<15.0f} {mat2_eos.cv:<15.0f} {'eu/(K·cm³)':<10}")
     print()
 
     # Strength and fracture parameters
     print("STRENGTH & FRACTURE PARAMETERS:")
     print(f"{'Property':<25} {'Al Flyer':<15} {'Cu Target':<15} {'Unit':<10}")
     print("-"*70)
-    print(f"{'Strength model':<25} {mat1_props.strength.stype:<15} {mat2_props.strength.stype:<15} {'-':<10}")
-    print(f"{'Shear modulus':<25} {mat1_props.strength.gmod/1e9:<15.1f} {mat2_props.strength.gmod/1e9:<15.1f} {'GPa':<10}")
-    print(f"{'Yield strength':<25} {mat1_props.strength.ys/1e6:<15.1f} {mat2_props.strength.ys/1e6:<15.1f} {'MPa':<10}")
+    print(f"{'Strength model':<25} {run.istrid[0]:<15} {run.istrid[1]:<15} {'-':<10}")
+    print(f"{'Shear modulus':<25} {mat1_strength.gmod/1e9:<15.1f} {mat2_strength.gmod/1e9:<15.1f} {'GPa':<10}")
+    print(f"{'Yield strength':<25} {mat1_strength.ys/1e6:<15.1f} {mat2_strength.ys/1e6:<15.1f} {'MPa':<10}")
 
     # Fracture parameters
-    al_pfrac = mat1_props.fracture.pfrac / 1e6 if mat1_props.fracture.pfrac < 1e15 else float('inf')
-    cu_pfrac = mat2_props.fracture.pfrac / 1e6 if mat2_props.fracture.pfrac < 1e15 else float('inf')
+    al_pfrac = mat1_fracture.pfrac / 1e6 if mat1_fracture.pfrac < 1e15 else float('inf')
+    cu_pfrac = mat2_fracture.pfrac / 1e6 if mat2_fracture.pfrac < 1e15 else float('inf')
 
     if ENABLE_INTERFACE_ANALYSIS:
         print(f"{'Spall threshold':<25} {al_pfrac:<15.1f} {cu_pfrac:<15.1f} {'MPa':<10}")
     else:
         print(f"{'Spall threshold':<25} {'∞ (disabled)':<15} {'∞ (disabled)':<15} {'MPa':<10}")
 
-    print(f"{'Max distension (nrhomin)':<25} {mat1_props.fracture.nrhomin:<15.2f} {mat2_props.fracture.nrhomin:<15.2f} {'-':<10}")
+    print(f"{'Max distension (nrhomin)':<25} {mat1_fracture.nrhomin:<15.2f} {mat2_fracture.nrhomin:<15.2f} {'-':<10}")
     print()
 
 except (AttributeError, IndexError) as e:
-    print("MATERIAL PROPERTIES:")
-    print(f"Error accessing material properties: {e}")
-    print("Using fallback values for analysis...")
+    print("\n" + "="*80)
+    print("❌ CRITICAL ERROR: YAML MATERIAL PROPERTIES EXTRACTION FAILED")
+    print("="*80)
+    print(f"Error details: {e}")
+    print(f"Error type: {type(e).__name__}")
+    print("\nDEBUGGING INFORMATION:")
+    print(f"- Run object type: {type(run)}")
+    print(f"- Has materials attribute: {hasattr(run, 'materials')}")
+    if hasattr(run, 'materials'):
+        print(f"- Number of materials: {len(run.materials)}")
+        if len(run.materials) > 0:
+            print(f"- Material 0 type: {type(run.materials[0])}")
+            print(f"- Material 0 attributes: {dir(run.materials[0])}")
     
-    # Set fallback plotting parameters
-    density_vmin = min(al_nrhomin, cu_nrhomin) * 0.95
-    density_vmax = 1.0
-    pressure_range_gpa = max(al_spall_threshold_from_yaml, cu_spall_threshold_from_yaml) * 2.0
+    print("\nPOSSIBLE CAUSES:")
+    print("1. YAML file format error")
+    print("2. Missing material sections (mat1, mat2)")
+    print("3. Missing fracture parameters (pfrac, nrhomin)")
+    print("4. YAML parsing failed during RunClass initialization")
     
-    print("Displaying basic configuration info instead:")
-    print(f"{'Thickness':<25} {al_thickness_str:<15} {cu_thickness_str:<15} {'-':<10}")
-    print(f"{'Materials':<25} {'Al Flyer':<15} {'Cu Target':<15} {'-':<10}")
-    print(f"{'Impact velocity':<25} {'Unknown':<15} {'0':<15} {'m/s':<10}")
-    if ENABLE_INTERFACE_ANALYSIS:
-        print(f"{'Spall physics':<25} {'ENABLED':<15} {'ENABLED':<15} {'-':<10}")
-    else:
-        print(f"{'Spall physics':<25} {'DISABLED':<15} {'DISABLED':<15} {'-':<10}")
-    print(f"Using fallback plot ranges: Density [{density_vmin:.2f}, {density_vmax:.1f}], Pressure ±{pressure_range_gpa:.2f} GPa")
-    print()
+    print("\nACTION REQUIRED:")
+    print("1. Check YAML file syntax")
+    print("2. Verify mat1 and mat2 sections exist")
+    print("3. Verify fracture blocks exist with pfrac and nrhomin")
+    print("4. Run: run.checkinput() to debug YAML loading")
+    print("="*80)
+    
+    # Stop execution - no fallback values
+    raise RuntimeError("YAML material properties extraction failed. Cannot proceed without valid material data.")
 
 # Analysis configuration
 print("ANALYSIS CONFIGURATION:")
@@ -713,11 +774,120 @@ if ENABLE_FSV_ANALYSIS:
         plt.show()
 
         print(f"Maximum free surface velocity: {max_fsv:.2f} m/s at {max_fsv_time:.2f} μs")
+        
+        # ==========================================================================
+        # FSV-BASED SPALL STRENGTH CALCULATION
+        # ==========================================================================
+        print("\n=== FSV-BASED SPALL STRENGTH ANALYSIS ===")
+        
+        if len(valid_fsv) > 10:  # Need sufficient data points
+            
+            # Detect velocity pullback (spall signature)
+            # Look for the first significant decrease after peak velocity
+            fsv_array = np.array(valid_fsv)
+            time_array = np.array(valid_times)
+            
+            # Find the maximum velocity and its index
+            max_idx = np.argmax(fsv_array)
+            u_max = fsv_array[max_idx]
+            t_max = time_array[max_idx]
+            
+            print(f"Peak FSV: {u_max:.2f} m/s at {t_max:.3f} μs")
+            
+            # Look for pullback after the peak (minimum velocity after peak)
+            if max_idx < len(fsv_array) - 5:  # Need at least 5 points after peak
+                
+                # Search for minimum in the pullback region (after peak)
+                pullback_region = fsv_array[max_idx:]
+                pullback_times = time_array[max_idx:]
+                
+                # Find the minimum velocity in pullback region
+                min_idx_relative = np.argmin(pullback_region)
+                min_idx_absolute = max_idx + min_idx_relative
+                u_min = pullback_region[min_idx_relative]
+                t_min = pullback_times[min_idx_relative]
+                
+                # Calculate velocity pullback
+                delta_u = u_max - u_min
+                
+                print(f"Minimum FSV after peak: {u_min:.2f} m/s at {t_min:.3f} μs")
+                print(f"Velocity pullback (Δu): {delta_u:.2f} m/s")
+                
+                # Only calculate spall strength if there's significant pullback
+                if delta_u > 10:  # Threshold for significant pullback (10 m/s)
+                    
+                    # Get material properties for spall strength calculation
+                    # Get Cu target properties from YAML using correct pyKO units
+                    try:
+                        rho0_cu_gcm3 = run.irhostart[1]  # g/cm³ (pyKO units)
+                        rho0_cu_kgm3 = rho0_cu_gcm3 * 1000  # Convert to kg/m³
+                        print(f"Using Cu density from YAML: ρ₀ = {rho0_cu_kgm3:.0f} kg/m³ ({rho0_cu_gcm3:.3f} g/cm³)")
+                    except (AttributeError, IndexError):
+                        raise RuntimeError("Cannot access Cu density from run.irhostart[1]")
+                    
+                    # Get sound speed from EOS using correct pyKO units
+                    try:
+                        mat2_eos = run.ieos[1]  # Cu target EOS (material index 1)
+                        if hasattr(mat2_eos, 'c0'):
+                            c0_cu_cmus = mat2_eos.c0  # cm/μs (pyKO units)
+                            c0_cu_ms = c0_cu_cmus * 10000  # Convert to m/s
+                            print(f"Using c₀ from YAML: {c0_cu_ms:.0f} m/s ({c0_cu_cmus:.3f} cm/μs)")
+                        else:
+                            raise RuntimeError("Sound speed c0 not found in EOS object")
+                    except Exception as e:
+                        raise RuntimeError(f"Error accessing Cu sound speed properties: {e}")
+                    
+                    # Calculate FSV-based spall strength using converted SI units
+                    # Spall strength = 0.5 * ρ₀ * c₀ * Δu
+                    spall_strength_pa = 0.5 * rho0_cu_kgm3 * c0_cu_ms * delta_u
+                    spall_strength_gpa = spall_strength_pa / 1e9
+                    
+                    print(f"\n🎯 FSV-BASED SPALL STRENGTH CALCULATION:")
+                    print(f"   Formula: σ_spall = ½ × ρ₀ × c₀ × Δu")
+                    print(f"   σ_spall = 0.5 × {rho0_cu_kgm3:.0f} × {c0_cu_ms:.0f} × {delta_u:.2f}")
+                    print(f"   σ_spall = {spall_strength_pa:.0f} Pa = {spall_strength_gpa:.3f} GPa")
+                    
+                    # Compare with YAML spall threshold
+                    print(f"\n📊 COMPARISON WITH YAML THRESHOLD:")
+                    print(f"   FSV-measured spall strength: {spall_strength_gpa:.3f} GPa")
+                    print(f"   YAML Cu spall threshold:     {cu_spall_threshold_from_yaml:.3f} GPa")
+                    
+                    ratio = spall_strength_gpa / cu_spall_threshold_from_yaml
+                    if abs(ratio - 1.0) < 0.3:  # Within 30%
+                        print(f"   ✅ Good agreement! Ratio: {ratio:.2f} (within 30%)")
+                    elif ratio > 1.3:
+                        print(f"   ⚠️  FSV measurement higher than YAML: ratio = {ratio:.2f}")
+                    elif ratio < 0.7:
+                        print(f"   ⚠️  FSV measurement lower than YAML: ratio = {ratio:.2f}")
+                    else:
+                        print(f"   📏 Moderate difference: ratio = {ratio:.2f}")
+                    
+                    # Store for summary
+                    fsv_spall_strength = spall_strength_gpa
+                    fsv_measurement_available = True
+                    
+                else:
+                    print(f"❌ Insufficient velocity pullback ({delta_u:.2f} m/s < 10 m/s threshold)")
+                    print("   No clear spall signature detected in FSV")
+                    fsv_spall_strength = 0
+                    fsv_measurement_available = False
+                    
+            else:
+                print("❌ Insufficient data after peak velocity for pullback analysis")
+                fsv_spall_strength = 0
+                fsv_measurement_available = False
+                
+        else:
+            print("❌ Insufficient FSV data points for spall analysis")
+            fsv_spall_strength = 0
+            fsv_measurement_available = False
 
 else:
     print("\n=== FREE SURFACE VELOCITY ANALYSIS DISABLED ===")
     max_fsv = 0
     max_fsv_time = 0
+    fsv_spall_strength = 0
+    fsv_measurement_available = False
 
 ########################################################################################################################
 # MAXIMUM STRESS ANALYSIS IN Cu TARGET
@@ -908,6 +1078,17 @@ if max_tens_value > cu_spall_threshold:
     print(f"⚠️  Tensile stress exceeds Cu spall threshold ({cu_spall_threshold} GPa)!")
 else:
     print(f"✅ Tensile stress below Cu spall threshold ({cu_spall_threshold} GPa)")
+
+# Add FSV-based spall strength to summary
+if 'fsv_measurement_available' in locals() and fsv_measurement_available:
+    print(f"🎯 FSV-measured spall strength: {fsv_spall_strength:.3f} GPa")
+    ratio = fsv_spall_strength / cu_spall_threshold
+    if abs(ratio - 1.0) < 0.3:
+        print(f"✅ FSV measurement agrees with YAML threshold (ratio: {ratio:.2f})")
+    else:
+        print(f"📏 FSV vs YAML threshold ratio: {ratio:.2f}")
+else:
+    print("❌ FSV-based spall strength: Not available")
 
 # Use the overall spall detection result (both density and pressure-based)
 if overall_spall_detected:
