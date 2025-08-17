@@ -157,7 +157,7 @@ mat2:
         ys     : 95.6E6      # Copper yield strength
     frac:
         # Fracture Parameters:
-        pfrac  : 1.50E9     # Spall threshold: 3.0 GPa (3E9 Pa)  
+        pfrac  : 3.0E9     # Spall threshold: 3.0 GPa (3E9 Pa)
         nrhomin : 1          # Max distension: NO density reduction allowed (ρ_min/ρ_ref = 1.0)
                              # Perfectly brittle - fractures immediately upon any expansion
 #
