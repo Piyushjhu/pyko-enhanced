@@ -794,6 +794,11 @@ if ENABLE_FSV_ANALYSIS:
             
             print(f"Peak FSV: {u_max:.2f} m/s at {t_max:.3f} μs")
             
+            # Enhanced FSV analysis diagnostics
+            print(f"Debug: Total FSV data points: {len(fsv_array)}")
+            print(f"Debug: Peak occurs at index {max_idx} of {len(fsv_array)} points")
+            print(f"Debug: Data points after peak: {len(fsv_array) - max_idx}")
+            
             # Look for pullback after the peak (minimum velocity after peak)
             if max_idx < len(fsv_array) - 5:  # Need at least 5 points after peak
                 

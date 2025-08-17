@@ -1,3 +1,4 @@
+# %%
 # import modules
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -6,7 +7,7 @@ import matplotlib.colors as colors
 import runpy
 import sys
 
-sys.path.insert(1, '/Users/jakediamond/Desktop/Hopkins School Work/HEMI Research/pyko')
+sys.path.insert(1, '/Users/piyushwanchoo/Documents/Post_Doc/DATA_ANALYSIS/Pyko_pw/pyko')
 from pyko import *
 import pyko
 
@@ -117,13 +118,13 @@ pko['pos0'] = poscol
 # make eulerian x-t diagrams for the pressure and particle velocity
 # fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12,10))
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12,5), dpi=300)
-xt_pres = ax1.scatter(pko.pos * 10, pko.time, c=pko.pres, cmap=cm.coolwarm_r, norm=colors.CenteredNorm())
+xt_pres = ax1.scatter(pko.pos * 10, pko.time, c=pko.pres, cmap='coolwarm_r', norm=colors.CenteredNorm())
 # xt_pres = ax1.scatter(pko.pos*10, pko.time, c=pko.mat, cmap=cm.viridis)
 ax1.set_xlabel('Position (mm)')
 ax1.set_ylabel('Time (us)')
 plt.colorbar(xt_pres, label='Pressure (GPa)')
 
-xt_up = ax2.scatter(pko.pos * 10, pko.time, c=pko.up, cmap=cm.inferno)
+xt_up = ax2.scatter(pko.pos * 10, pko.time, c=pko.up, cmap='inferno')
 ax2.set_xlabel('Position (mm)')
 ax2.set_ylabel('Time (us)')
 plt.colorbar(xt_up, label='Particle Velocity (m/s)')
@@ -143,22 +144,34 @@ plt.tight_layout()
 plt.show()
 
 
-# get all the unique times 
-time_u = np.unique(pko.time)
+# --- Free Surface Velocity (FSV) Calculation and Plotting ---
 
-# allocate storage for the free surface velocity 
-fsv = np.zeros(len(time_u))
+# Get all unique times in the simulation
+unique_times = np.unique(pko['time'])
 
-# for each unique time find the node on the far right (the free surface if that is
-# how the BC is set) and get its particle velocity. 
-for i, t in enumerate(time_u):
-    pko_t = pko[pko.time == t]
-    fsv[i] = pko_t.iloc[np.argmax(pko_t.pos)].up
+# Allocate storage for the free surface velocity at each time
+free_surface_velocity = np.zeros_like(unique_times)
 
-# plot the free surface velocity 
-# useful for comparison to PDV
-fig, ax = plt.subplots(1, 1, dpi=300)
-ax.plot(time_u, fsv)
-ax.set_xlabel('Time (us)')
-ax.set_ylabel('Free Surface Velocity (m/s)')
+# For each time, find the node with the maximum position (rightmost = free surface)
+for i, t in enumerate(unique_times):
+    snapshot = pko[pko['time'] == t]
+    rightmost_node = snapshot.iloc[np.argmax(snapshot['pos'])]
+    free_surface_velocity[i] = rightmost_node['up']
+
+# Plot free surface velocity vs. time
+plt.figure(dpi=300)
+plt.plot(unique_times, free_surface_velocity, label='Free Surface Velocity')
+plt.xlabel('Time (μs)')
+plt.ylabel('Free Surface Velocity (m/s)')
+plt.title('Free Surface Velocity vs. Time')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
 plt.show()
+
+# Optionally, print the maximum FSV and when it occurs
+max_fsv = np.max(free_surface_velocity)
+max_fsv_time = unique_times[np.argmax(free_surface_velocity)]
+print(f"Maximum free surface velocity: {max_fsv:.2f} m/s at {max_fsv_time:.2f} μs")
+
+# %%

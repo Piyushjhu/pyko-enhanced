@@ -1,0 +1,194 @@
+# ==============================================================================
+# PyKO Shock Physics Simulation Configuration
+# ==============================================================================
+#
+# This file defines a shock physics simulation with the following setup:
+# - Test Name: Test 18a Aluminum-Aluminum Multivelocity
+# - Impactor: Aluminum flyer
+# - Target: Aluminum target
+# - Physics: Interface separation (spall) enabled
+#
+# ==============================================================================
+# SIMULATION PARAMETERS
+# ==============================================================================
+
+name: Test 18a Aluminum-Aluminum Multivelocity  # Test name for identification
+outputfilename: ./pyko-test-18a-aluminum-aluminum-multivelocity-bin.dat  # Binary output file path
+outputformat: BIN  # Output format (BIN = binary)
+
+# ==============================================================================
+# VELOCITY SWEEP PARAMETERS
+# ==============================================================================
+# These parameters define the range of impact velocities to simulate
+# The script will automatically run simulations for each velocity in the range
+velocity_sweep:
+  min_velocity: 100.0  # Minimum impact velocity (m/s)
+  max_velocity: 500.0  # Maximum impact velocity (m/s)
+  velocity_steps: 5  # Number of velocity steps to simulate
+
+# ==============================================================================
+# TIMING PARAMETERS
+# ==============================================================================
+# These control the simulation duration and output frequency
+tstop: 0.1e-06  # Total simulation time (seconds) - when simulation ends
+dtstart: 1.0e-10  # Initial time step (seconds) - starting time step size
+dtoutput: 1.0e-09  # Output frequency (seconds) - how often to save data
+# Note: Fixed timing used for all velocities - minimum 0.1 μs recommended
+
+
+# ==============================================================================
+# MATERIAL 1: IMPACTOR (FLYER)
+# ==============================================================================
+# This is the material that impacts the target
+mat1:
+  # Mesh definition - controls spatial discretization
+  mesh:
+    cells: 100  # Number of computational cells
+    xstart: -0.0001  # Starting x-position (meters)
+    length: 0.0001  # Material thickness (meters)
+
+  # Initial conditions - state at t=0
+  init:
+    up0: 100.0  # Initial velocity (m/s) - will be overridden by velocity sweep
+    rho0: 2700.0  # Initial density (kg/m³)
+    p0: 0.0  # Initial pressure (Pa)
+    e0: 0.0  # Initial internal energy (J/kg)
+    t0: 298.0  # Initial temperature (K)
+
+  # Equation of State (EOS) - defines pressure-density-energy relationship
+  eos:
+    name: Aluminum flyer  # Material name for identification
+    type: MGR  # EOS type (MGR = Mie-Gruneisen)
+    rhoref: 2700.0  # Reference density (kg/m³)
+    c0: 5200.0  # Bulk sound speed (m/s)
+    s1: 1.5  # Hugoniot slope parameter (dimensionless)
+    gamma0: 2.0  # Gruneisen parameter (dimensionless)
+    cv: 896.0  # Specific heat capacity (J/kg/K)
+
+  # Strength model - defines material strength and plasticity
+  str:
+    type: VM  # Strength model (VM = Von Mises)
+    gmod: 26000000000.0  # Shear modulus (Pa)
+    ys: 207000000.0  # Yield strength (Pa)
+
+  # Fracture model - defines spall (tensile fracture) behavior
+  frac:
+    pfrac: 276000000.0  # Fracture pressure (Pa) - tensile stress threshold for spall
+    nrhomin: 1.0  # Minimum density ratio - controls void formation during spall
+
+# ==============================================================================
+# MATERIAL 2: TARGET
+# ==============================================================================
+# This is the material that receives the impact
+mat2:
+  # Mesh definition - controls spatial discretization
+  mesh:
+    cells: 200  # Number of computational cells
+    xstart: 0.0  # Starting x-position (meters)
+    length: 0.0002  # Material thickness (meters)
+
+  # Initial conditions - state at t=0
+  init:
+    up0: 0.0  # Initial velocity (m/s) - target is stationary
+    rho0: 2700.0  # Initial density (kg/m³)
+    p0: 0.0  # Initial pressure (Pa)
+    e0: 0.0  # Initial internal energy (J/kg)
+    t0: 298.0  # Initial temperature (K)
+
+  # Equation of State (EOS) - defines pressure-density-energy relationship
+  eos:
+    name: Aluminum target  # Material name for identification
+    type: MGR  # EOS type (MGR = Mie-Gruneisen)
+    rhoref: 2700.0  # Reference density (kg/m³)
+    c0: 5200.0  # Bulk sound speed (m/s)
+    s1: 1.5  # Hugoniot slope parameter (dimensionless)
+    gamma0: 2.0  # Gruneisen parameter (dimensionless)
+    cv: 896.0  # Specific heat capacity (J/kg/K)
+
+  # Strength model - defines material strength and plasticity
+  str:
+    type: VM  # Strength model (VM = Von Mises)
+    gmod: 26000000000.0  # Shear modulus (Pa)
+    ys: 207000000.0  # Yield strength (Pa)
+
+  # Fracture model - defines spall (tensile fracture) behavior
+  frac:
+    pfrac: 276000000.0  # Fracture pressure (Pa) - tensile stress threshold for spall
+    nrhomin: 1.0  # Minimum density ratio - controls void formation during spall
+
+# ==============================================================================
+# BOUNDARY CONDITIONS
+# ==============================================================================
+# These define how the simulation domain behaves at its edges
+boundaries:
+  ibc: FREE  # Left boundary condition (FREE = free surface)
+  ip0: 0.0  # Left boundary pressure (Pa)
+  obc: FREE  # Right boundary condition (FREE = free surface)
+  op0: 0.0  # Right boundary pressure (Pa)
+
+# ==============================================================================
+# GEOMETRY AND PHYSICS PARAMETERS
+# ==============================================================================
+geometry: PLA  # Geometry type (PLA = planar)
+gravity: 0.0  # Gravitational acceleration (m/s²)
+pvoid: 0.0  # Void pressure (Pa)
+
+# ==============================================================================
+# UNITS DEFINITION
+# ==============================================================================
+# User input parameters units - what units you specify values in
+# PyKO will automatically convert these to code units internally
+units:
+  time: second  # Time units for tstop, dtstart, dtoutput
+  length: meter  # Length units for mesh dimensions
+  velocity: meter/second  # Velocity units for up0
+  density: kg/m^3  # Density units for rho0, rhoref
+  mass: kg  # Mass units
+  pressure: Pa  # Pressure units for p0, pfrac, gmod, ys
+  temperature: K  # Temperature units for t0
+  energy: J  # Energy units
+  sp_energy: J/kg  # Specific energy units for e0
+  sp_entropy: J/kg/K  # Specific entropy units
+  sp_heat_cap: J/kg/K  # Specific heat capacity units for cv
+  gravity: m/s^2  # Gravitational acceleration units
+  s2: second/meter  # Hugoniot parameter units
+
+# EOS table units - for ANEOS tables (not used in this MGR configuration)
+tableunits:
+  density: g/cm^3  # Density units in EOS tables
+  temperature: K  # Temperature units in EOS tables
+  pressure: GPa  # Pressure units in EOS tables
+  sp_energy: MJ/kg  # Specific energy units in EOS tables
+  hfree_energy: MJ/kg  # Helmholtz free energy units
+  sp_entropy: MJ/K/kg  # Specific entropy units in EOS tables
+  sound_speed: cm/s  # Sound speed units in EOS tables
+  sp_heat_cap: MJ/kg/K  # Specific heat capacity units in EOS tables
+
+# Code units - internal units used by PyKO (Wilkins book units)
+# These are automatically converted from user units
+codeunits:
+  time: microseconds  # Internal time units
+  length: cm  # Internal length units
+  mass: g  # Internal mass units
+  density: g/cm^3  # Internal density units
+  relative_volume: dimensionless  # Volume ratio units
+  velocity: cm/microsecond  # Internal velocity units (10 km/s)
+  pressure: megabar  # Internal pressure units (100 GPa)
+  temperature: K  # Internal temperature units
+  energy: eu  # Internal energy units (10^12 ergs)
+  sp_energy: eu/g  # Internal specific energy units
+  sp_heat_cap: eu/K/g  # Internal specific heat capacity units
+  sp_entropy: eu/K/g  # Internal specific entropy units
+  ie_perv0: eu/cm^3  # Internal energy per volume units
+  cv_perv0: eu/cm^3/K  # Internal heat capacity per volume units
+  gravity: cm/microseconds^2  # Internal gravitational acceleration units
+  s2: microseconds/cm  # Internal Hugoniot parameter units
+
+# ==============================================================================
+# SIMULATION CONTROL
+# ==============================================================================
+nmat: 2  # Number of materials in simulation
+
+# ==============================================================================
+# END OF CONFIGURATION FILE
+# ==============================================================================

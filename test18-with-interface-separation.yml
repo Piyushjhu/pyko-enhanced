@@ -1,0 +1,83 @@
+name: Test 18a Aluminum-Aluminum Multivelocity WITH Interface Separation
+outputfilename: ./pyko-test-18a-aluminum-aluminum-multivelocity-with-interface-separation-bin.dat
+outputformat: BIN
+velocity_sweep:
+  min_velocity: 100.0
+  max_velocity: 300.0
+  velocity_steps: 5
+tstop: 1.0e-07
+dtstart: 1.0e-10
+dtoutput: 2.0e-10
+mat1:
+  mesh:
+    cells: 100
+    xstart: -0.0001
+    length: 0.0001
+  init:
+    up0: 100.0
+    rho0: 2700.0
+    p0: 0.0
+    e0: 0.0
+    t0: 298.0
+  eos:
+    name: Aluminum flyer
+    type: MGR
+    rhoref: 2700.0
+    c0: 5200.0
+    s1: 1.5
+    gamma0: 2.0
+    cv: 896.0
+  str:
+    type: VM
+    gmod: 26000000000.0
+    ys: 207000000.0
+  frac:
+    pfrac: 276000000.0
+    nrhomin: 1.0
+mat2:
+  mesh:
+    cells: 200
+    xstart: 0.0
+    length: 0.0002
+  init:
+    up0: 0.0
+    rho0: 2700.0
+    p0: 0.0
+    e0: 0.0
+    t0: 298.0
+  eos:
+    name: Aluminum target
+    type: MGR
+    rhoref: 2700.0
+    c0: 5200.0
+    s1: 1.5
+    gamma0: 2.0
+    cv: 896.0
+  str:
+    type: VM
+    gmod: 26000000000.0
+    ys: 207000000.0
+  frac:
+    pfrac: 276000000.0
+    nrhomin: 1.0
+boundaries:
+  ibc: FREE
+  ip0: 0.0
+  obc: FREE
+  op0: 0.0
+geometry: PLA
+gravity: 0.0
+pvoid: 0.0
+units:
+  length: m
+  time: s
+  mass: kg
+  pressure: Pa
+  velocity: m/s
+  density: kg/m3
+  energy: J
+  temperature: K
+  stress: Pa
+  modulus: Pa
+  heat_capacity: J/kg/K
+nmat: 2
