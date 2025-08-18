@@ -1,39 +1,40 @@
 # ==============================================================================
-# PyKO Shock Physics Simulation Configuration
+# pyKO Test 18b: Multi-Thickness Analysis Configuration
 # ==============================================================================
 #
-# This file defines a shock physics simulation with the following setup:
-# - Test Name: Test 18a Aluminum-Copper Multivelocity
+# This file defines a thickness sweep analysis with the following setup:
+# - Test Name: Test 18b Aluminum-Aluminum Multithickness
 # - Impactor: Aluminum flyer
-# - Target: Copper target
-# - Physics: Interface separation (spall) enabled
+# - Target: Aluminum target
+# - Physics: Thickness sweep analysis with constant impact velocity
 #
 # ==============================================================================
 # SIMULATION PARAMETERS
 # ==============================================================================
 
-name: Test 18a Aluminum-Copper Multivelocity  # Test name for identification
-outputfilename: ./pyko-test-18a-aluminum-copper-multivelocity-bin.dat  # Binary output file path
+name: Test 18b Aluminum-Aluminum Multithickness  # Test name for identification
+outputfilename: ./pyko-test-18b-aluminum-aluminum-multithickness-bin.dat  # Binary output file path
 outputformat: BIN  # Output format (BIN = binary)
 
 # ==============================================================================
-# VELOCITY SWEEP PARAMETERS
+# THICKNESS SWEEP PARAMETERS
 # ==============================================================================
-# These parameters define the range of impact velocities to simulate
-# The script will automatically run simulations for each velocity in the range
-velocity_sweep:
-  min_velocity: 100.0  # Minimum impact velocity (m/s)
-  max_velocity: 300.0  # Maximum impact velocity (m/s)
-  velocity_steps: 3  # Number of velocity steps to simulate
+# These parameters define the range of target thicknesses to simulate
+# The script will automatically run simulations for each thickness in the range
+thickness_sweep:
+  constant_velocity: 100.0  # Constant impact velocity (m/s)
+  min_thickness: 200.0  # Minimum target thickness (μm)
+  max_thickness: 600.0  # Maximum target thickness (μm)
+  thickness_steps: 3  # Number of thickness steps to simulate
 
 # ==============================================================================
 # TIMING PARAMETERS
 # ==============================================================================
 # These control the simulation duration and output frequency
-tstop: 3.0e-07  # Total simulation time (seconds) - when simulation ends
+tstop: 1.0e-07  # Total simulation time (seconds) - when simulation ends
 dtstart: 1.0e-10  # Initial time step (seconds) - starting time step size
-dtoutput: 1.0e-09  # Output frequency (seconds) - how often to save data
-# Note: Fixed timing used for all velocities - minimum 0.1 μs recommended
+dtoutput: 1.0e-10  # Output frequency (seconds) - how often to save data
+# Note: Timing should be sufficient for the thickest target
 
 
 # ==============================================================================
@@ -49,7 +50,7 @@ mat1:
 
   # Initial conditions - state at t=0
   init:
-    up0: 100.0  # Initial velocity (m/s) - will be overridden by velocity sweep
+    up0: 100.0  # Initial velocity (m/s) - constant for all thicknesses
     rho0: 2700.0  # Initial density (kg/m³)
     p0: 0.0  # Initial pressure (Pa)
     e0: 0.0  # Initial internal energy (J/kg)
@@ -67,9 +68,15 @@ mat1:
 
   # Strength model - defines material strength and plasticity
   str:
-    type: VM  # Strength model (HYDRO/VM/SG)
-    gmod: 26000000000.0  # Shear modulus (Pa)
-    ys: 207000000.0  # Yield strength (Pa)
+    type: SG  # Strength model (HYDRO/VM/SG)
+    Y0: 290000000.0  # Initial yield strength (Pa)
+    Ymax: 680000000.0  # Maximum yield strength (Pa)
+    beta: 125.0  # Strain rate sensitivity parameter
+    n: 0.1  # Strain hardening exponent
+    b: 8.0  # Strain rate parameter
+    h: 0.00062  # Strain hardening parameter
+    Tm0: 1220.0  # Melting temperature (K)
+    mu0: 27600000000.0  # Initial shear modulus (Pa)
 
   # Fracture model - defines spall (tensile fracture) behavior
   frac:
@@ -79,47 +86,47 @@ mat1:
 # ==============================================================================
 # MATERIAL 2: TARGET
 # ==============================================================================
-# This is the material that receives the impact
+# This is the material that receives the impact (thickness will be varied)
 mat2:
   # Mesh definition - controls spatial discretization
   mesh:
-    cells: 400  # Number of computational cells
+    cells: 200  # Number of computational cells (will be varied)
     xstart: 0.0  # Starting x-position (meters)
-    length: 0.0004  # Material thickness (meters)
+    length: 0.0002  # Material thickness (meters) (will be varied)
 
   # Initial conditions - state at t=0
   init:
     up0: 0.0  # Initial velocity (m/s) - target is stationary
-    rho0: 8930.0  # Initial density (kg/m³)
+    rho0: 2700.0  # Initial density (kg/m³)
     p0: 0.0  # Initial pressure (Pa)
     e0: 0.0  # Initial internal energy (J/kg)
     t0: 298.0  # Initial temperature (K)
 
   # Equation of State (EOS) - defines pressure-density-energy relationship
   eos:
-    name: Copper target  # Material name for identification
+    name: Aluminum target  # Material name for identification
     type: MGR  # EOS type (MGR = Mie-Gruneisen)
-    rhoref: 8930.0  # Reference density (kg/m³)
-    c0: 3900.0  # Bulk sound speed (m/s)
-    s1: 1.49  # Hugoniot slope parameter (dimensionless)
-    gamma0: 1.99  # Gruneisen parameter (dimensionless)
-    cv: 385.0  # Specific heat capacity (J/kg/K)
+    rhoref: 2700.0  # Reference density (kg/m³)
+    c0: 5200.0  # Bulk sound speed (m/s)
+    s1: 1.5  # Hugoniot slope parameter (dimensionless)
+    gamma0: 2.0  # Gruneisen parameter (dimensionless)
+    cv: 896.0  # Specific heat capacity (J/kg/K)
 
   # Strength model - defines material strength and plasticity
   str:
     type: SG  # Strength model (HYDRO/VM/SG)
-    Y0: 120000000.0  # Initial yield strength (Pa)
-    Ymax: 640000000.0  # Maximum yield strength (Pa)
-    beta: 36.0  # Strain rate sensitivity parameter
-    n: 0.45  # Strain hardening exponent
-    b: 12.0  # Strain rate parameter
-    h: 0.025  # Strain hardening parameter
-    Tm0: 1358.0  # Melting temperature (K)
-    mu0: 47700000000.0  # Initial shear modulus (Pa)
+    Y0: 290000000.0  # Initial yield strength (Pa)
+    Ymax: 680000000.0  # Maximum yield strength (Pa)
+    beta: 125.0  # Strain rate sensitivity parameter
+    n: 0.1  # Strain hardening exponent
+    b: 8.0  # Strain rate parameter
+    h: 0.00062  # Strain hardening parameter
+    Tm0: 1220.0  # Melting temperature (K)
+    mu0: 27600000000.0  # Initial shear modulus (Pa)
 
   # Fracture model - defines spall (tensile fracture) behavior
   frac:
-    pfrac: 1500000000.0  # Fracture pressure (Pa) - tensile stress threshold for spall
+    pfrac: 276000000.0  # Fracture pressure (Pa) - tensile stress threshold for spall
     nrhomin: 1.0  # Minimum density ratio - controls void formation during spall
 
 # ==============================================================================
@@ -194,7 +201,3 @@ codeunits:
 # SIMULATION CONTROL
 # ==============================================================================
 nmat: 2  # Number of materials in simulation
-
-# ==============================================================================
-# END OF CONFIGURATION FILE
-# ==============================================================================

@@ -1,0 +1,112 @@
+boundaries:
+  ibc: FREE
+  ip0: 0.0
+  obc: FREE
+  op0: 0.0
+codeunits:
+  cv_perv0: eu/cm^3/K
+  density: g/cm^3
+  energy: eu
+  gravity: cm/microseconds^2
+  ie_perv0: eu/cm^3
+  length: cm
+  mass: g
+  pressure: megabar
+  relative_volume: dimensionless
+  s2: microseconds/cm
+  sp_energy: eu/g
+  sp_entropy: eu/K/g
+  sp_heat_cap: eu/K/g
+  temperature: K
+  time: microseconds
+  velocity: cm/microsecond
+dtoutput: 1.0e-09
+dtstart: 1.0e-10
+geometry: PLA
+gravity: 0.0
+mat1:
+  eos:
+    c0: 5200.0
+    cv: 896.0
+    gamma0: 2.0
+    name: Aluminum flyer
+    rhoref: 2700.0
+    s1: 1.5
+    type: MGR
+  frac:
+    nrhomin: 1.0
+    pfrac: 276000000.0
+  init:
+    e0: 0.0
+    p0: 0.0
+    rho0: 2700.0
+    t0: 298.0
+    up0: 400.0
+  mesh:
+    cells: 50
+    length: 5e-05
+    xstart: -5e-05
+  str:
+    gmod: 26000000000.0
+    type: VM
+    ys: 207000000.0
+mat2:
+  eos:
+    c0: 3940.0
+    cv: 385.0
+    gamma0: 1.96
+    name: Copper target
+    rhoref: 8930.0
+    s1: 1.489
+    type: MGR
+  frac:
+    nrhomin: 1.0
+    pfrac: 200000000.0
+  init:
+    e0: 0.0
+    p0: 0.0
+    rho0: 8930.0
+    t0: 298.0
+    up0: 0.0
+  mesh:
+    cells: 800
+    length: 0.0008
+    xstart: 0.0
+  str:
+    gmod: 48000000000.0
+    type: VM
+    ys: 120000000.0
+name: Test 18b Aluminum-Copper Multithickness
+nmat: 2
+outputfilename: ./test18_b_multithickness/pyko-test18b-thickness-800-bin.dat
+outputformat: BIN
+pvoid: 0.0
+tableunits:
+  density: g/cm^3
+  hfree_energy: MJ/kg
+  pressure: GPa
+  sound_speed: cm/s
+  sp_energy: MJ/kg
+  sp_entropy: MJ/K/kg
+  sp_heat_cap: MJ/kg/K
+  temperature: K
+thickness_sweep:
+  constant_velocity: 400.0
+  max_thickness: 800.0
+  min_thickness: 100.0
+  thickness_steps: 7
+tstop: 6.091370558375635e-07
+units:
+  density: kg/m^3
+  energy: J
+  gravity: m/s^2
+  length: meter
+  mass: kg
+  pressure: Pa
+  s2: second/meter
+  sp_energy: J/kg
+  sp_entropy: J/kg/K
+  sp_heat_cap: J/kg/K
+  temperature: K
+  time: second
+  velocity: meter/second

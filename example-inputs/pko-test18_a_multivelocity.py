@@ -106,8 +106,13 @@ for i, velocity in enumerate(velocities):
     # Update the velocity
     current_config['mat1']['init']['up0'] = float(velocity)  # Ensure it's a Python float
     
+    # Ensure timing parameters are floats
+    current_config['tstop'] = float(current_config['tstop'])
+    current_config['dtstart'] = float(current_config['dtstart'])
+    current_config['dtoutput'] = float(current_config['dtoutput'])
+    
     # Check if timing is sufficient for this velocity
-    tstop = float(current_config['tstop'])
+    tstop = current_config['tstop']
     
     # Get minimum timing from YAML or use default, ensure it's a float
     min_tstop = float(current_config.get('min_tstop', 0.1e-06))  # Default 0.1 μs if not specified

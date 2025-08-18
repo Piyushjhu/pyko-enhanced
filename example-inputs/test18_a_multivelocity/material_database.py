@@ -17,6 +17,32 @@ import shutil
 from typing import Dict, Any, Optional
 
 # ===============================================================================
+# STRENGTH MODEL DATABASE
+# ===============================================================================
+
+STRENGTH_MODELS = {
+    'HYDRO': {
+        'name': 'Hydrodynamic',
+        'description': 'No strength - material behaves as a fluid',
+        'parameters': [],
+        'type': 'HYDRO'
+    },
+    'VM': {
+        'name': 'Von Mises',
+        'description': 'Classic Von Mises yield criterion with constant yield strength',
+        'parameters': ['gmod', 'ys'],
+        'type': 'VM'
+    },
+    'SG': {
+        'name': 'Steinberg-Guinan',
+        'description': 'Advanced rate-dependent strength model with temperature and strain rate effects',
+        'parameters': ['Y0', 'Ymax', 'beta', 'n', 'b', 'h', 'Tm0', 'mu0'],
+        'type': 'SG'
+    },
+
+}
+
+# ===============================================================================
 # MATERIAL DATABASE
 # ===============================================================================
 
@@ -30,7 +56,28 @@ MATERIAL_DATABASE = {
         'spall_strength': 276.0E6, # Pa
         'specific_heat': 896.0,   # J/kg·K
         'hugoniot_slope': 1.5,    # dimensionless
-        'description': 'Lightweight, ductile metal with good shock properties'
+        'description': 'Lightweight, ductile metal with good shock properties',
+        # Steinberg-Guinan parameters
+        'sg_Y0': 0.29E9,          # Initial yield strength (Pa)
+        'sg_Ymax': 0.68E9,        # Maximum yield strength (Pa)
+        'sg_beta': 125.0,         # Strain rate sensitivity parameter
+        'sg_n': 0.1,              # Strain hardening exponent
+        'sg_b': 8.0,              # Strain rate parameter
+        'sg_h': 6.2E-4,           # Strain hardening parameter
+        'sg_Tm0': 1220.0,         # Melting temperature (K)
+        'sg_mu0': 27.6E9,         # Initial shear modulus (Pa)
+        # SCGL parameters (extended from SG)
+        'scgl_Y0': 0.29E9,        # Initial yield strength (Pa) - same as SG
+        'scgl_Ymax': 0.68E9,      # Maximum yield strength (Pa) - same as SG
+        'scgl_beta': 125.0,       # Strain rate sensitivity parameter - same as SG
+        'scgl_n': 0.1,            # Strain hardening exponent - same as SG
+        'scgl_b': 8.0,            # Strain rate parameter - same as SG
+        'scgl_h': 6.2E-4,         # Strain hardening parameter - same as SG
+        'scgl_Tm0': 1220.0,       # Melting temperature (K) - same as SG
+        'scgl_mu0': 27.6E9,       # Initial shear modulus (Pa) - same as SG
+        'scgl_alpha': 0.1,        # SCGL-specific parameter for pressure effects
+        'scgl_gamma': 0.05,       # SCGL-specific parameter for temperature effects
+        'scgl_delta': 0.02        # SCGL-specific parameter for phase transitions
     },
     
     'Copper': {
@@ -42,7 +89,28 @@ MATERIAL_DATABASE = {
         'spall_strength': 1.5E9,  # Pa
         'specific_heat': 385.0,   # J/kg·K
         'hugoniot_slope': 1.49,   # dimensionless
-        'description': 'High conductivity metal with excellent shock properties'
+        'description': 'High conductivity metal with excellent shock properties',
+        # Steinberg-Guinan parameters
+        'sg_Y0': 0.12E9,          # Initial yield strength (Pa)
+        'sg_Ymax': 0.64E9,        # Maximum yield strength (Pa)
+        'sg_beta': 36.0,          # Strain rate sensitivity parameter
+        'sg_n': 0.45,             # Strain hardening exponent
+        'sg_b': 12.0,             # Strain rate parameter
+        'sg_h': 0.025,            # Strain hardening parameter
+        'sg_Tm0': 1358.0,         # Melting temperature (K)
+        'sg_mu0': 47.7E9,         # Initial shear modulus (Pa)
+        # SCGL parameters (extended from SG)
+        'scgl_Y0': 0.12E9,        # Initial yield strength (Pa) - same as SG
+        'scgl_Ymax': 0.64E9,      # Maximum yield strength (Pa) - same as SG
+        'scgl_beta': 36.0,        # Strain rate sensitivity parameter - same as SG
+        'scgl_n': 0.45,           # Strain hardening exponent - same as SG
+        'scgl_b': 12.0,           # Strain rate parameter - same as SG
+        'scgl_h': 0.025,          # Strain hardening parameter - same as SG
+        'scgl_Tm0': 1358.0,       # Melting temperature (K) - same as SG
+        'scgl_mu0': 47.7E9,       # Initial shear modulus (Pa) - same as SG
+        'scgl_alpha': 0.08,       # SCGL-specific parameter for pressure effects
+        'scgl_gamma': 0.04,       # SCGL-specific parameter for temperature effects
+        'scgl_delta': 0.015       # SCGL-specific parameter for phase transitions
     },
     
     'Steel': {
@@ -54,7 +122,28 @@ MATERIAL_DATABASE = {
         'spall_strength': 2.0E9,  # Pa
         'specific_heat': 502.0,   # J/kg·K
         'hugoniot_slope': 1.49,   # dimensionless
-        'description': 'AISI 304 stainless steel - common structural material'
+        'description': 'AISI 304 stainless steel - common structural material',
+        # Steinberg-Guinan parameters (estimated for AISI 304)
+        'sg_Y0': 0.205E9,         # Initial yield strength (Pa)
+        'sg_Ymax': 0.8E9,         # Maximum yield strength (Pa)
+        'sg_beta': 80.0,          # Strain rate sensitivity parameter
+        'sg_n': 0.2,              # Strain hardening exponent
+        'sg_b': 10.0,             # Strain rate parameter
+        'sg_h': 0.01,             # Strain hardening parameter
+        'sg_Tm0': 1673.0,         # Melting temperature (K)
+        'sg_mu0': 77.0E9,         # Initial shear modulus (Pa)
+        # SCGL parameters (extended from SG)
+        'scgl_Y0': 0.205E9,       # Initial yield strength (Pa) - same as SG
+        'scgl_Ymax': 0.8E9,       # Maximum yield strength (Pa) - same as SG
+        'scgl_beta': 80.0,        # Strain rate sensitivity parameter - same as SG
+        'scgl_n': 0.2,            # Strain hardening exponent - same as SG
+        'scgl_b': 10.0,           # Strain rate parameter - same as SG
+        'scgl_h': 0.01,           # Strain hardening parameter - same as SG
+        'scgl_Tm0': 1673.0,       # Melting temperature (K) - same as SG
+        'scgl_mu0': 77.0E9,       # Initial shear modulus (Pa) - same as SG
+        'scgl_alpha': 0.12,       # SCGL-specific parameter for pressure effects
+        'scgl_gamma': 0.06,       # SCGL-specific parameter for temperature effects
+        'scgl_delta': 0.025       # SCGL-specific parameter for phase transitions
     },
     
     'Iron': {
@@ -66,7 +155,28 @@ MATERIAL_DATABASE = {
         'spall_strength': 1.8E9,  # Pa
         'specific_heat': 460.0,   # J/kg·K
         'hugoniot_slope': 1.92,   # dimensionless
-        'description': 'Pure iron - fundamental material for shock studies'
+        'description': 'Pure iron - fundamental material for shock studies',
+        # Steinberg-Guinan parameters (estimated for pure iron)
+        'sg_Y0': 0.18E9,          # Initial yield strength (Pa)
+        'sg_Ymax': 0.7E9,         # Maximum yield strength (Pa)
+        'sg_beta': 70.0,          # Strain rate sensitivity parameter
+        'sg_n': 0.25,             # Strain hardening exponent
+        'sg_b': 9.0,              # Strain rate parameter
+        'sg_h': 0.015,            # Strain hardening parameter
+        'sg_Tm0': 1811.0,         # Melting temperature (K)
+        'sg_mu0': 82.0E9,         # Initial shear modulus (Pa)
+        # SCGL parameters (extended from SG)
+        'scgl_Y0': 0.18E9,        # Initial yield strength (Pa) - same as SG
+        'scgl_Ymax': 0.7E9,       # Maximum yield strength (Pa) - same as SG
+        'scgl_beta': 70.0,        # Strain rate sensitivity parameter - same as SG
+        'scgl_n': 0.25,           # Strain hardening exponent - same as SG
+        'scgl_b': 9.0,            # Strain rate parameter - same as SG
+        'scgl_h': 0.015,          # Strain hardening parameter - same as SG
+        'scgl_Tm0': 1811.0,       # Melting temperature (K) - same as SG
+        'scgl_mu0': 82.0E9,       # Initial shear modulus (Pa) - same as SG
+        'scgl_alpha': 0.15,       # SCGL-specific parameter for pressure effects
+        'scgl_gamma': 0.07,       # SCGL-specific parameter for temperature effects
+        'scgl_delta': 0.03        # SCGL-specific parameter for phase transitions
     },
     
     'Titanium': {
@@ -78,7 +188,28 @@ MATERIAL_DATABASE = {
         'spall_strength': 1.2E9,  # Pa
         'specific_heat': 523.0,   # J/kg·K
         'hugoniot_slope': 1.14,   # dimensionless
-        'description': 'High strength-to-weight ratio aerospace material'
+        'description': 'High strength-to-weight ratio aerospace material',
+        # Steinberg-Guinan parameters (estimated for Ti-6Al-4V)
+        'sg_Y0': 0.83E9,          # Initial yield strength (Pa)
+        'sg_Ymax': 1.2E9,         # Maximum yield strength (Pa)
+        'sg_beta': 60.0,          # Strain rate sensitivity parameter
+        'sg_n': 0.15,             # Strain hardening exponent
+        'sg_b': 7.0,              # Strain rate parameter
+        'sg_h': 0.008,            # Strain hardening parameter
+        'sg_Tm0': 1943.0,         # Melting temperature (K)
+        'sg_mu0': 44.0E9,         # Initial shear modulus (Pa)
+        # SCGL parameters (extended from SG)
+        'scgl_Y0': 0.83E9,        # Initial yield strength (Pa) - same as SG
+        'scgl_Ymax': 1.2E9,       # Maximum yield strength (Pa) - same as SG
+        'scgl_beta': 60.0,        # Strain rate sensitivity parameter - same as SG
+        'scgl_n': 0.15,           # Strain hardening exponent - same as SG
+        'scgl_b': 7.0,            # Strain rate parameter - same as SG
+        'scgl_h': 0.008,          # Strain hardening parameter - same as SG
+        'scgl_Tm0': 1943.0,       # Melting temperature (K) - same as SG
+        'scgl_mu0': 44.0E9,       # Initial shear modulus (Pa) - same as SG
+        'scgl_alpha': 0.09,       # SCGL-specific parameter for pressure effects
+        'scgl_gamma': 0.045,      # SCGL-specific parameter for temperature effects
+        'scgl_delta': 0.018       # SCGL-specific parameter for phase transitions
     },
     
     'Tungsten': {
@@ -90,7 +221,28 @@ MATERIAL_DATABASE = {
         'spall_strength': 3.0E9,  # Pa
         'specific_heat': 134.0,   # J/kg·K
         'hugoniot_slope': 1.24,   # dimensionless
-        'description': 'Very dense refractory metal with high melting point'
+        'description': 'Very dense refractory metal with high melting point',
+        # Steinberg-Guinan parameters (estimated for pure tungsten)
+        'sg_Y0': 0.55E9,          # Initial yield strength (Pa)
+        'sg_Ymax': 1.5E9,         # Maximum yield strength (Pa)
+        'sg_beta': 100.0,         # Strain rate sensitivity parameter
+        'sg_n': 0.1,              # Strain hardening exponent
+        'sg_b': 15.0,             # Strain rate parameter
+        'sg_h': 0.005,            # Strain hardening parameter
+        'sg_Tm0': 3695.0,         # Melting temperature (K)
+        'sg_mu0': 161.0E9,        # Initial shear modulus (Pa)
+        # SCGL parameters (extended from SG)
+        'scgl_Y0': 0.55E9,        # Initial yield strength (Pa) - same as SG
+        'scgl_Ymax': 1.5E9,       # Maximum yield strength (Pa) - same as SG
+        'scgl_beta': 100.0,       # Strain rate sensitivity parameter - same as SG
+        'scgl_n': 0.1,            # Strain hardening exponent - same as SG
+        'scgl_b': 15.0,           # Strain rate parameter - same as SG
+        'scgl_h': 0.005,          # Strain hardening parameter - same as SG
+        'scgl_Tm0': 3695.0,       # Melting temperature (K) - same as SG
+        'scgl_mu0': 161.0E9,      # Initial shear modulus (Pa) - same as SG
+        'scgl_alpha': 0.18,       # SCGL-specific parameter for pressure effects
+        'scgl_gamma': 0.08,       # SCGL-specific parameter for temperature effects
+        'scgl_delta': 0.035       # SCGL-specific parameter for phase transitions
     },
     
     'Gold': {
@@ -102,7 +254,28 @@ MATERIAL_DATABASE = {
         'spall_strength': 0.8E9,  # Pa
         'specific_heat': 129.0,   # J/kg·K
         'hugoniot_slope': 1.57,   # dimensionless
-        'description': 'Noble metal with high density and ductility'
+        'description': 'Noble metal with high density and ductility',
+        # Steinberg-Guinan parameters (estimated for pure gold)
+        'sg_Y0': 0.12E9,          # Initial yield strength (Pa)
+        'sg_Ymax': 0.4E9,         # Maximum yield strength (Pa)
+        'sg_beta': 50.0,          # Strain rate sensitivity parameter
+        'sg_n': 0.3,              # Strain hardening exponent
+        'sg_b': 6.0,              # Strain rate parameter
+        'sg_h': 0.02,             # Strain hardening parameter
+        'sg_Tm0': 1337.0,         # Melting temperature (K)
+        'sg_mu0': 27.0E9,         # Initial shear modulus (Pa)
+        # SCGL parameters (extended from SG)
+        'scgl_Y0': 0.12E9,        # Initial yield strength (Pa) - same as SG
+        'scgl_Ymax': 0.4E9,       # Maximum yield strength (Pa) - same as SG
+        'scgl_beta': 50.0,        # Strain rate sensitivity parameter - same as SG
+        'scgl_n': 0.3,            # Strain hardening exponent - same as SG
+        'scgl_b': 6.0,            # Strain rate parameter - same as SG
+        'scgl_h': 0.02,           # Strain hardening parameter - same as SG
+        'scgl_Tm0': 1337.0,       # Melting temperature (K) - same as SG
+        'scgl_mu0': 27.0E9,       # Initial shear modulus (Pa) - same as SG
+        'scgl_alpha': 0.06,       # SCGL-specific parameter for pressure effects
+        'scgl_gamma': 0.03,       # SCGL-specific parameter for temperature effects
+        'scgl_delta': 0.012       # SCGL-specific parameter for phase transitions
     },
     
     'Lead': {
@@ -114,7 +287,28 @@ MATERIAL_DATABASE = {
         'spall_strength': 0.3E9,  # Pa
         'specific_heat': 129.0,   # J/kg·K
         'hugoniot_slope': 1.46,   # dimensionless
-        'description': 'Very soft, dense metal with low melting point'
+        'description': 'Very soft, dense metal with low melting point',
+        # Steinberg-Guinan parameters (estimated for pure lead)
+        'sg_Y0': 0.018E9,         # Initial yield strength (Pa)
+        'sg_Ymax': 0.1E9,         # Maximum yield strength (Pa)
+        'sg_beta': 30.0,          # Strain rate sensitivity parameter
+        'sg_n': 0.5,              # Strain hardening exponent
+        'sg_b': 4.0,              # Strain rate parameter
+        'sg_h': 0.05,             # Strain hardening parameter
+        'sg_Tm0': 600.0,          # Melting temperature (K)
+        'sg_mu0': 5.6E9,          # Initial shear modulus (Pa)
+        # SCGL parameters (extended from SG)
+        'scgl_Y0': 0.018E9,       # Initial yield strength (Pa) - same as SG
+        'scgl_Ymax': 0.1E9,       # Maximum yield strength (Pa) - same as SG
+        'scgl_beta': 30.0,        # Strain rate sensitivity parameter - same as SG
+        'scgl_n': 0.5,            # Strain hardening exponent - same as SG
+        'scgl_b': 4.0,            # Strain rate parameter - same as SG
+        'scgl_h': 0.05,           # Strain hardening parameter - same as SG
+        'scgl_Tm0': 600.0,        # Melting temperature (K) - same as SG
+        'scgl_mu0': 5.6E9,        # Initial shear modulus (Pa) - same as SG
+        'scgl_alpha': 0.04,       # SCGL-specific parameter for pressure effects
+        'scgl_gamma': 0.02,       # SCGL-specific parameter for temperature effects
+        'scgl_delta': 0.008       # SCGL-specific parameter for phase transitions
     }
 }
 
@@ -173,7 +367,8 @@ def print_material_database():
 def generate_material_yaml(material_name: str, material_id: int, 
                           thickness: float, cells: int, xstart: float,
                           initial_velocity: float = 0.0, 
-                          enable_spall: bool = True) -> Dict[str, Any]:
+                          enable_spall: bool = True,
+                          strength_model: str = 'VM') -> Dict[str, Any]:
     """
     Generate YAML configuration for a material based on database properties.
     
@@ -222,11 +417,7 @@ def generate_material_yaml(material_name: str, material_id: int,
                 'gamma0': props['gruneisen'],
                 'cv': props['specific_heat']
             },
-            'str': {
-                'type': 'VM',
-                'gmod': props['shear_modulus'],
-                'ys': props['yield_strength']
-            },
+            'str': generate_strength_model_config(props, strength_model),
             'frac': {
                 'pfrac': pfrac,
                 'nrhomin': nrhomin
@@ -236,12 +427,51 @@ def generate_material_yaml(material_name: str, material_id: int,
     
     return material_config
 
+def generate_strength_model_config(material_props: Dict[str, Any], strength_model: str) -> Dict[str, Any]:
+    """
+    Generate strength model configuration based on material properties and model type.
+    
+    Args:
+        material_props (dict): Material properties from database
+        strength_model (str): Strength model type ('HYDRO', 'VM', 'SG')
+        
+    Returns:
+        dict: Strength model configuration
+    """
+    if strength_model == 'HYDRO':
+        return {
+            'type': 'HYDRO'
+        }
+    elif strength_model == 'VM':
+        return {
+            'type': 'VM',
+            'gmod': material_props['shear_modulus'],
+            'ys': material_props['yield_strength']
+        }
+    elif strength_model == 'SG':
+        return {
+            'type': 'SG',
+            'Y0': material_props['sg_Y0'],
+            'Ymax': material_props['sg_Ymax'],
+            'beta': material_props['sg_beta'],
+            'n': material_props['sg_n'],
+            'b': material_props['sg_b'],
+            'h': material_props['sg_h'],
+            'Tm0': material_props['sg_Tm0'],
+            'mu0': material_props['sg_mu0']
+        }
+
+    else:
+        raise ValueError(f"Unknown strength model: {strength_model}. Available: {list(STRENGTH_MODELS.keys())}")
+
 def generate_complete_yaml_config(impactor_material: str, target_material: str,
                                  impactor_thickness: float, target_thickness: float,
                                  impactor_cells: int, target_cells: int,
                                  velocity_sweep: Dict[str, Any],
                                  timing_params: Dict[str, float],
                                  enable_spall: bool = True,
+                                 impactor_strength_model: str = 'VM',
+                                 target_strength_model: str = 'VM',
                                  test_name: str = "Custom Material Test") -> Dict[str, Any]:
     """
     Generate a complete YAML configuration file.
@@ -264,12 +494,14 @@ def generate_complete_yaml_config(impactor_material: str, target_material: str,
     # Generate material configurations
     mat1_config = generate_material_yaml(
         impactor_material, 1, impactor_thickness, impactor_cells, 
-        -impactor_thickness, velocity_sweep['min_velocity'], enable_spall
+        -impactor_thickness, velocity_sweep['min_velocity'], enable_spall,
+        impactor_strength_model
     )
     
     mat2_config = generate_material_yaml(
         target_material, 2, target_thickness, target_cells, 
-        0.0, 0.0, enable_spall
+        0.0, 0.0, enable_spall,
+        target_strength_model
     )
     
     # Complete configuration
@@ -400,9 +632,9 @@ def save_yaml_config(config: Dict[str, Any], filename: str):
             "# These parameters define the range of impact velocities to simulate",
             "# The script will automatically run simulations for each velocity in the range",
             "velocity_sweep:",
-            f"  min_velocity: {vs.get('min_velocity', 100.0)}  # Minimum impact velocity (m/s)",
-            f"  max_velocity: {vs.get('max_velocity', 1000.0)}  # Maximum impact velocity (m/s)",
-            f"  velocity_steps: {vs.get('velocity_steps', 10)}  # Number of velocity steps to simulate",
+            f"  min_velocity: {float(vs.get('min_velocity', 100.0))}  # Minimum impact velocity (m/s)",
+            f"  max_velocity: {float(vs.get('max_velocity', 1000.0))}  # Maximum impact velocity (m/s)",
+            f"  velocity_steps: {int(vs.get('velocity_steps', 10))}  # Number of velocity steps to simulate",
             ""
         ])
     
@@ -412,9 +644,9 @@ def save_yaml_config(config: Dict[str, Any], filename: str):
         "# TIMING PARAMETERS",
         "# ==============================================================================",
         "# These control the simulation duration and output frequency",
-        f"tstop: {config.get('tstop', 1e-6)}  # Total simulation time (seconds) - when simulation ends",
-        f"dtstart: {config.get('dtstart', 1e-10)}  # Initial time step (seconds) - starting time step size",
-        f"dtoutput: {config.get('dtoutput', 1e-9)}  # Output frequency (seconds) - how often to save data",
+        f"tstop: {float(config.get('tstop', 1e-6))}  # Total simulation time (seconds) - when simulation ends",
+        f"dtstart: {float(config.get('dtstart', 1e-10))}  # Initial time step (seconds) - starting time step size",
+        f"dtoutput: {float(config.get('dtoutput', 1e-9))}  # Output frequency (seconds) - how often to save data",
         "# Note: Fixed timing used for all velocities - minimum 0.1 μs recommended",
         "",
 
@@ -432,38 +664,62 @@ def save_yaml_config(config: Dict[str, Any], filename: str):
             "mat1:",
             "  # Mesh definition - controls spatial discretization",
             "  mesh:",
-            f"    cells: {mat1['mesh']['cells']}  # Number of computational cells",
-            f"    xstart: {mat1['mesh']['xstart']}  # Starting x-position (meters)",
-            f"    length: {mat1['mesh']['length']}  # Material thickness (meters)",
+            f"    cells: {int(mat1['mesh']['cells'])}  # Number of computational cells",
+            f"    xstart: {float(mat1['mesh']['xstart'])}  # Starting x-position (meters)",
+            f"    length: {float(mat1['mesh']['length'])}  # Material thickness (meters)",
             "",
             "  # Initial conditions - state at t=0",
             "  init:",
-            f"    up0: {mat1['init']['up0']}  # Initial velocity (m/s) - will be overridden by velocity sweep",
-            f"    rho0: {mat1['init']['rho0']}  # Initial density (kg/m³)",
-            f"    p0: {mat1['init']['p0']}  # Initial pressure (Pa)",
-            f"    e0: {mat1['init']['e0']}  # Initial internal energy (J/kg)",
-            f"    t0: {mat1['init']['t0']}  # Initial temperature (K)",
+            f"    up0: {float(mat1['init']['up0'])}  # Initial velocity (m/s) - will be overridden by velocity sweep",
+            f"    rho0: {float(mat1['init']['rho0'])}  # Initial density (kg/m³)",
+            f"    p0: {float(mat1['init']['p0'])}  # Initial pressure (Pa)",
+            f"    e0: {float(mat1['init']['e0'])}  # Initial internal energy (J/kg)",
+            f"    t0: {float(mat1['init']['t0'])}  # Initial temperature (K)",
             "",
             "  # Equation of State (EOS) - defines pressure-density-energy relationship",
             "  eos:",
             f"    name: {mat1['eos']['name']}  # Material name for identification",
             f"    type: {mat1['eos']['type']}  # EOS type (MGR = Mie-Gruneisen)",
-            f"    rhoref: {mat1['eos']['rhoref']}  # Reference density (kg/m³)",
-            f"    c0: {mat1['eos']['c0']}  # Bulk sound speed (m/s)",
-            f"    s1: {mat1['eos']['s1']}  # Hugoniot slope parameter (dimensionless)",
-            f"    gamma0: {mat1['eos']['gamma0']}  # Gruneisen parameter (dimensionless)",
-            f"    cv: {mat1['eos']['cv']}  # Specific heat capacity (J/kg/K)",
+            f"    rhoref: {float(mat1['eos']['rhoref'])}  # Reference density (kg/m³)",
+            f"    c0: {float(mat1['eos']['c0'])}  # Bulk sound speed (m/s)",
+            f"    s1: {float(mat1['eos']['s1'])}  # Hugoniot slope parameter (dimensionless)",
+            f"    gamma0: {float(mat1['eos']['gamma0'])}  # Gruneisen parameter (dimensionless)",
+            f"    cv: {float(mat1['eos']['cv'])}  # Specific heat capacity (J/kg/K)",
             "",
             "  # Strength model - defines material strength and plasticity",
             "  str:",
-            f"    type: {mat1['str']['type']}  # Strength model (VM = Von Mises)",
-            f"    gmod: {mat1['str']['gmod']}  # Shear modulus (Pa)",
-            f"    ys: {mat1['str']['ys']}  # Yield strength (Pa)",
+            f"    type: {mat1['str']['type']}  # Strength model (HYDRO/VM/SG)",
+        ])
+        
+        # Add strength model specific parameters
+        if mat1['str']['type'] == 'HYDRO':
+            yaml_content.extend([
+                "    # Hydrodynamic model - no strength parameters needed"
+            ])
+        elif mat1['str']['type'] == 'VM':
+            yaml_content.extend([
+                f"    gmod: {float(mat1['str']['gmod'])}  # Shear modulus (Pa)",
+                f"    ys: {float(mat1['str']['ys'])}  # Yield strength (Pa)"
+            ])
+        elif mat1['str']['type'] == 'SG':
+            yaml_content.extend([
+                f"    Y0: {float(mat1['str']['Y0'])}  # Initial yield strength (Pa)",
+                f"    Ymax: {float(mat1['str']['Ymax'])}  # Maximum yield strength (Pa)",
+                f"    beta: {float(mat1['str']['beta'])}  # Strain rate sensitivity parameter",
+                f"    n: {float(mat1['str']['n'])}  # Strain hardening exponent",
+                f"    b: {float(mat1['str']['b'])}  # Strain rate parameter",
+                f"    h: {float(mat1['str']['h'])}  # Strain hardening parameter",
+                f"    Tm0: {float(mat1['str']['Tm0'])}  # Melting temperature (K)",
+                f"    mu0: {float(mat1['str']['mu0'])}  # Initial shear modulus (Pa)"
+            ])
+
+        
+        yaml_content.extend([
             "",
             "  # Fracture model - defines spall (tensile fracture) behavior",
             "  frac:",
-            f"    pfrac: {mat1['frac']['pfrac']}  # Fracture pressure (Pa) - tensile stress threshold for spall",
-            f"    nrhomin: {mat1['frac']['nrhomin']}  # Minimum density ratio - controls void formation during spall",
+            f"    pfrac: {float(mat1['frac']['pfrac'])}  # Fracture pressure (Pa) - tensile stress threshold for spall",
+            f"    nrhomin: {float(mat1['frac']['nrhomin'])}  # Minimum density ratio - controls void formation during spall",
             ""
         ])
     
@@ -478,38 +734,62 @@ def save_yaml_config(config: Dict[str, Any], filename: str):
             "mat2:",
             "  # Mesh definition - controls spatial discretization",
             "  mesh:",
-            f"    cells: {mat2['mesh']['cells']}  # Number of computational cells",
-            f"    xstart: {mat2['mesh']['xstart']}  # Starting x-position (meters)",
-            f"    length: {mat2['mesh']['length']}  # Material thickness (meters)",
+            f"    cells: {int(mat2['mesh']['cells'])}  # Number of computational cells",
+            f"    xstart: {float(mat2['mesh']['xstart'])}  # Starting x-position (meters)",
+            f"    length: {float(mat2['mesh']['length'])}  # Material thickness (meters)",
             "",
             "  # Initial conditions - state at t=0",
             "  init:",
-            f"    up0: {mat2['init']['up0']}  # Initial velocity (m/s) - target is stationary",
-            f"    rho0: {mat2['init']['rho0']}  # Initial density (kg/m³)",
-            f"    p0: {mat2['init']['p0']}  # Initial pressure (Pa)",
-            f"    e0: {mat2['init']['e0']}  # Initial internal energy (J/kg)",
-            f"    t0: {mat2['init']['t0']}  # Initial temperature (K)",
+            f"    up0: {float(mat2['init']['up0'])}  # Initial velocity (m/s) - target is stationary",
+            f"    rho0: {float(mat2['init']['rho0'])}  # Initial density (kg/m³)",
+            f"    p0: {float(mat2['init']['p0'])}  # Initial pressure (Pa)",
+            f"    e0: {float(mat2['init']['e0'])}  # Initial internal energy (J/kg)",
+            f"    t0: {float(mat2['init']['t0'])}  # Initial temperature (K)",
             "",
             "  # Equation of State (EOS) - defines pressure-density-energy relationship",
             "  eos:",
             f"    name: {mat2['eos']['name']}  # Material name for identification",
             f"    type: {mat2['eos']['type']}  # EOS type (MGR = Mie-Gruneisen)",
-            f"    rhoref: {mat2['eos']['rhoref']}  # Reference density (kg/m³)",
-            f"    c0: {mat2['eos']['c0']}  # Bulk sound speed (m/s)",
-            f"    s1: {mat2['eos']['s1']}  # Hugoniot slope parameter (dimensionless)",
-            f"    gamma0: {mat2['eos']['gamma0']}  # Gruneisen parameter (dimensionless)",
-            f"    cv: {mat2['eos']['cv']}  # Specific heat capacity (J/kg/K)",
+            f"    rhoref: {float(mat2['eos']['rhoref'])}  # Reference density (kg/m³)",
+            f"    c0: {float(mat2['eos']['c0'])}  # Bulk sound speed (m/s)",
+            f"    s1: {float(mat2['eos']['s1'])}  # Hugoniot slope parameter (dimensionless)",
+            f"    gamma0: {float(mat2['eos']['gamma0'])}  # Gruneisen parameter (dimensionless)",
+            f"    cv: {float(mat2['eos']['cv'])}  # Specific heat capacity (J/kg/K)",
             "",
             "  # Strength model - defines material strength and plasticity",
             "  str:",
-            f"    type: {mat2['str']['type']}  # Strength model (VM = Von Mises)",
-            f"    gmod: {mat2['str']['gmod']}  # Shear modulus (Pa)",
-            f"    ys: {mat2['str']['ys']}  # Yield strength (Pa)",
+            f"    type: {mat2['str']['type']}  # Strength model (HYDRO/VM/SG)",
+        ])
+        
+        # Add strength model specific parameters
+        if mat2['str']['type'] == 'HYDRO':
+            yaml_content.extend([
+                "    # Hydrodynamic model - no strength parameters needed"
+            ])
+        elif mat2['str']['type'] == 'VM':
+            yaml_content.extend([
+                f"    gmod: {float(mat2['str']['gmod'])}  # Shear modulus (Pa)",
+                f"    ys: {float(mat2['str']['ys'])}  # Yield strength (Pa)"
+            ])
+        elif mat2['str']['type'] == 'SG':
+            yaml_content.extend([
+                f"    Y0: {float(mat2['str']['Y0'])}  # Initial yield strength (Pa)",
+                f"    Ymax: {float(mat2['str']['Ymax'])}  # Maximum yield strength (Pa)",
+                f"    beta: {float(mat2['str']['beta'])}  # Strain rate sensitivity parameter",
+                f"    n: {float(mat2['str']['n'])}  # Strain hardening exponent",
+                f"    b: {float(mat2['str']['b'])}  # Strain rate parameter",
+                f"    h: {float(mat2['str']['h'])}  # Strain hardening parameter",
+                f"    Tm0: {float(mat2['str']['Tm0'])}  # Melting temperature (K)",
+                f"    mu0: {float(mat2['str']['mu0'])}  # Initial shear modulus (Pa)"
+            ])
+
+        
+        yaml_content.extend([
             "",
             "  # Fracture model - defines spall (tensile fracture) behavior",
             "  frac:",
-            f"    pfrac: {mat2['frac']['pfrac']}  # Fracture pressure (Pa) - tensile stress threshold for spall",
-            f"    nrhomin: {mat2['frac']['nrhomin']}  # Minimum density ratio - controls void formation during spall",
+            f"    pfrac: {float(mat2['frac']['pfrac'])}  # Fracture pressure (Pa) - tensile stress threshold for spall",
+            f"    nrhomin: {float(mat2['frac']['nrhomin'])}  # Minimum density ratio - controls void formation during spall",
             ""
         ])
     
@@ -523,9 +803,9 @@ def save_yaml_config(config: Dict[str, Any], filename: str):
             "# These define how the simulation domain behaves at its edges",
             "boundaries:",
             f"  ibc: {bc.get('ibc', 'FREE')}  # Left boundary condition (FREE = free surface)",
-            f"  ip0: {bc.get('ip0', 0.0)}  # Left boundary pressure (Pa)",
+            f"  ip0: {float(bc.get('ip0', 0.0))}  # Left boundary pressure (Pa)",
             f"  obc: {bc.get('obc', 'FREE')}  # Right boundary condition (FREE = free surface)",
-            f"  op0: {bc.get('op0', 0.0)}  # Right boundary pressure (Pa)",
+            f"  op0: {float(bc.get('op0', 0.0))}  # Right boundary pressure (Pa)",
             ""
         ])
     
@@ -535,8 +815,8 @@ def save_yaml_config(config: Dict[str, Any], filename: str):
         "# GEOMETRY AND PHYSICS PARAMETERS",
         "# ==============================================================================",
         f"geometry: {config.get('geometry', 'PLA')}  # Geometry type (PLA = planar)",
-        f"gravity: {config.get('gravity', 0.0)}  # Gravitational acceleration (m/s²)",
-        f"pvoid: {config.get('pvoid', 0.0)}  # Void pressure (Pa)",
+        f"gravity: {float(config.get('gravity', 0.0))}  # Gravitational acceleration (m/s²)",
+        f"pvoid: {float(config.get('pvoid', 0.0))}  # Void pressure (Pa)",
         ""
     ])
     
@@ -617,7 +897,9 @@ def create_material_config_files(impactor_material: str, target_material: str,
                                 impactor_cells: int = 100,
                                 target_cells: int = 200,
                                 velocity_range: tuple = (100.0, 300.0),
-                                velocity_steps: int = 5):
+                                velocity_steps: int = 5,
+                                impactor_strength_model: str = 'VM',
+                                target_strength_model: str = 'VM'):
     """
     Create YAML configuration file with interface separation.
     
@@ -641,7 +923,7 @@ def create_material_config_files(impactor_material: str, target_material: str,
     # Timing parameters (different for with/without spall)
     # Timing parameters (fixed timing for all velocities)
     timing_params = {
-        'tstop': 0.150E-6,    # 0.15 μs (sufficient for most velocities)
+        'tstop': 0.50E-6,    # 0.15 μs (sufficient for most velocities)
         'dtstart': 0.0001E-6, # 0.0001 μs
         'dtoutput': 0.001E-6  # 0.001 μs (less frequent output)
     }
@@ -653,7 +935,10 @@ def create_material_config_files(impactor_material: str, target_material: str,
         impactor_thickness, target_thickness,
         impactor_cells, target_cells,
         velocity_sweep, timing_params,
-        True, test_name  # Always enable spall/interface separation
+        True,  # Always enable spall/interface separation
+        impactor_strength_model,
+        target_strength_model,
+        test_name
     )
     
     # Determine filename (always with interface separation)
@@ -663,6 +948,7 @@ def create_material_config_files(impactor_material: str, target_material: str,
     save_yaml_config(config, filename)
     print(f"✅ Generated {filename}")
     print(f"   Materials: {impactor_material} → {target_material}")
+    print(f"   Strength models: {STRENGTH_MODELS[impactor_strength_model]['name']} → {STRENGTH_MODELS[target_strength_model]['name']}")
     print(f"   Thicknesses: {impactor_thickness*1e6:.0f} μm → {target_thickness*1e6:.0f} μm")
     print(f"   Resolution: {impactor_cells} → {target_cells} cells")
     print(f"   Velocity range: {velocity_range[0]}-{velocity_range[1]} m/s ({velocity_steps} steps)")
@@ -716,6 +1002,41 @@ def main():
         except ValueError:
             print("❌ Please enter a valid number")
     
+    # Show available strength models
+    print("\n🔧 Available Strength Models:")
+    print("-" * 30)
+    strength_models = list(STRENGTH_MODELS.keys())
+    for i, model in enumerate(strength_models, 1):
+        model_info = STRENGTH_MODELS[model]
+        print(f"{i:2d}. {model} - {model_info['name']}")
+        print(f"    {model_info['description']}")
+    
+    # Get impactor strength model
+    while True:
+        print(f"\nSelect impactor strength model (1-{len(strength_models)}):")
+        try:
+            choice = int(input("Enter number: ").strip())
+            if 1 <= choice <= len(strength_models):
+                impactor_strength_model = strength_models[choice - 1]
+                break
+            else:
+                print(f"❌ Please enter a number between 1 and {len(strength_models)}")
+        except ValueError:
+            print("❌ Please enter a valid number")
+    
+    # Get target strength model
+    while True:
+        print(f"\nSelect target strength model (1-{len(strength_models)}):")
+        try:
+            choice = int(input("Enter number: ").strip())
+            if 1 <= choice <= len(strength_models):
+                target_strength_model = strength_models[choice - 1]
+                break
+            else:
+                print(f"❌ Please enter a number between 1 and {len(strength_models)}")
+        except ValueError:
+            print("❌ Please enter a valid number")
+    
     # Get thicknesses
     print("\n📏 Thickness Configuration:")
     print("(Enter values in micrometers, e.g., 100 for 100 μm)")
@@ -739,7 +1060,9 @@ def main():
     print("📋 Configuration Summary")
     print("=" * 50)
     print(f"Impactor: {impactor_material} ({impactor_thickness*1e6:.0f} μm, {impactor_cells} cells)")
+    print(f"  Strength model: {STRENGTH_MODELS[impactor_strength_model]['name']}")
     print(f"Target: {target_material} ({target_thickness*1e6:.0f} μm, {target_cells} cells)")
+    print(f"  Strength model: {STRENGTH_MODELS[target_strength_model]['name']}")
     print(f"Velocity range: {min_velocity}-{max_velocity} m/s ({velocity_steps} steps)")
     print(f"Interface separation: Enabled")
     
@@ -751,7 +1074,9 @@ def main():
                 impactor_thickness, target_thickness,
                 impactor_cells, target_cells,
                 (min_velocity, max_velocity),
-                velocity_steps
+                velocity_steps,
+                impactor_strength_model,
+                target_strength_model
             )
             
             print("\n✅ Configuration generated successfully!")
