@@ -3,17 +3,17 @@
 # ==============================================================================
 #
 # This file defines a shock physics simulation with the following setup:
-# - Test Name: Test 18a Aluminum-Copper Multivelocity
+# - Test Name: Test 18a Aluminum-Brass Multivelocity
 # - Impactor: Aluminum flyer
-# - Target: Copper target
+# - Target: Brass target
 # - Physics: Interface separation (spall) enabled
 #
 # ==============================================================================
 # SIMULATION PARAMETERS
 # ==============================================================================
 
-name: Test 18a Aluminum-Copper Multivelocity  # Test name for identification
-outputfilename: ./pyko-test-18a-aluminum-copper-multivelocity-bin.dat  # Binary output file path
+name: Test 18a Aluminum-Brass Multivelocity  # Test name for identification
+outputfilename: ./pyko-test-18a-aluminum-brass-multivelocity-bin.dat  # Binary output file path
 outputformat: BIN  # Output format (BIN = binary)
 
 # ==============================================================================
@@ -22,17 +22,17 @@ outputformat: BIN  # Output format (BIN = binary)
 # These parameters define the range of impact velocities to simulate
 # The script will automatically run simulations for each velocity in the range
 velocity_sweep:
-  min_velocity: 100.0  # Minimum impact velocity (m/s)
-  max_velocity: 300.0  # Maximum impact velocity (m/s)
-  velocity_steps: 3  # Number of velocity steps to simulate
+  min_velocity: 400.0  # Minimum impact velocity (m/s)
+  max_velocity: 800.0  # Maximum impact velocity (m/s)
+  velocity_steps: 5  # Number of velocity steps to simulate
 
 # ==============================================================================
 # TIMING PARAMETERS
 # ==============================================================================
 # These control the simulation duration and output frequency
-tstop: 3.0e-07  # Total simulation time (seconds) - when simulation ends
-dtstart: 1.0e-10  # Initial time step (seconds) - starting time step size
-dtoutput: 1.0e-09  # Output frequency (seconds) - how often to save data
+tstop: 5e-07  # Total simulation time (seconds) - when simulation ends
+dtstart: 1e-10  # Initial time step (seconds) - starting time step size
+dtoutput: 1e-09  # Output frequency (seconds) - how often to save data
 # Note: Fixed timing used for all velocities - minimum 0.1 μs recommended
 
 
@@ -49,7 +49,7 @@ mat1:
 
   # Initial conditions - state at t=0
   init:
-    up0: 100.0  # Initial velocity (m/s) - will be overridden by velocity sweep
+    up0: 400.0  # Initial velocity (m/s) - will be overridden by velocity sweep
     rho0: 2700.0  # Initial density (kg/m³)
     p0: 0.0  # Initial pressure (Pa)
     e0: 0.0  # Initial internal energy (J/kg)
@@ -83,43 +83,37 @@ mat1:
 mat2:
   # Mesh definition - controls spatial discretization
   mesh:
-    cells: 400  # Number of computational cells
+    cells: 500  # Number of computational cells
     xstart: 0.0  # Starting x-position (meters)
-    length: 0.0004  # Material thickness (meters)
+    length: 0.001  # Material thickness (meters)
 
   # Initial conditions - state at t=0
   init:
     up0: 0.0  # Initial velocity (m/s) - target is stationary
-    rho0: 8930.0  # Initial density (kg/m³)
+    rho0: 8500.0  # Initial density (kg/m³)
     p0: 0.0  # Initial pressure (Pa)
     e0: 0.0  # Initial internal energy (J/kg)
     t0: 298.0  # Initial temperature (K)
 
   # Equation of State (EOS) - defines pressure-density-energy relationship
   eos:
-    name: Copper target  # Material name for identification
+    name: Brass target  # Material name for identification
     type: MGR  # EOS type (MGR = Mie-Gruneisen)
-    rhoref: 8930.0  # Reference density (kg/m³)
-    c0: 3900.0  # Bulk sound speed (m/s)
-    s1: 1.49  # Hugoniot slope parameter (dimensionless)
-    gamma0: 1.99  # Gruneisen parameter (dimensionless)
-    cv: 385.0  # Specific heat capacity (J/kg/K)
+    rhoref: 8500.0  # Reference density (kg/m³)
+    c0: 3800.0  # Bulk sound speed (m/s)
+    s1: 1.45  # Hugoniot slope parameter (dimensionless)
+    gamma0: 1.95  # Gruneisen parameter (dimensionless)
+    cv: 380.0  # Specific heat capacity (J/kg/K)
 
   # Strength model - defines material strength and plasticity
   str:
-    type: SG  # Strength model (HYDRO/VM/SG)
-    Y0: 120000000.0  # Initial yield strength (Pa)
-    Ymax: 640000000.0  # Maximum yield strength (Pa)
-    beta: 36.0  # Strain rate sensitivity parameter
-    n: 0.45  # Strain hardening exponent
-    b: 12.0  # Strain rate parameter
-    h: 0.025  # Strain hardening parameter
-    Tm0: 1358.0  # Melting temperature (K)
-    mu0: 47700000000.0  # Initial shear modulus (Pa)
+    type: VM  # Strength model (HYDRO/VM/SG)
+    gmod: 42000000000.0  # Shear modulus (Pa)
+    ys: 100000000.0  # Yield strength (Pa)
 
   # Fracture model - defines spall (tensile fracture) behavior
   frac:
-    pfrac: 1500000000.0  # Fracture pressure (Pa) - tensile stress threshold for spall
+    pfrac: 800000000.0  # Fracture pressure (Pa) - tensile stress threshold for spall
     nrhomin: 1.0  # Minimum density ratio - controls void formation during spall
 
 # ==============================================================================

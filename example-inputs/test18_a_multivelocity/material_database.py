@@ -309,6 +309,72 @@ MATERIAL_DATABASE = {
         'scgl_alpha': 0.04,       # SCGL-specific parameter for pressure effects
         'scgl_gamma': 0.02,       # SCGL-specific parameter for temperature effects
         'scgl_delta': 0.008       # SCGL-specific parameter for phase transitions
+    },
+    
+    'Zinc': {
+        'density': 7140.0,        # kg/m³
+        'sound_speed': 3200.0,    # m/s (estimated for shock physics)
+        'gruneisen': 2.1,         # dimensionless
+        'shear_modulus': 36.0E9,  # Pa (estimated from Young's modulus ~108 GPa)
+        'yield_strength': 110.0E6, # Pa
+        'spall_strength': 0.5E9,  # Pa (estimated)
+        'specific_heat': 390.0,   # J/kg·K
+        'hugoniot_slope': 1.4,    # dimensionless (estimated)
+        'description': 'Ductile metal with moderate shock properties, commonly used in alloys',
+        # Steinberg-Guinan parameters (estimated for pure zinc)
+        'sg_Y0': 0.11E9,          # Initial yield strength (Pa)
+        'sg_Ymax': 0.25E9,        # Maximum yield strength (Pa)
+        'sg_beta': 40.0,          # Strain rate sensitivity parameter
+        'sg_n': 0.3,              # Strain hardening exponent
+        'sg_b': 6.0,              # Strain rate parameter
+        'sg_h': 0.03,             # Strain hardening parameter
+        'sg_Tm0': 692.7,          # Melting temperature (K) = 419.5°C
+        'sg_mu0': 36.0E9,         # Initial shear modulus (Pa)
+        # SCGL parameters (extended from SG)
+        'scgl_Y0': 0.11E9,        # Initial yield strength (Pa) - same as SG
+        'scgl_Ymax': 0.25E9,      # Maximum yield strength (Pa) - same as SG
+        'scgl_beta': 40.0,        # Strain rate sensitivity parameter - same as SG
+        'scgl_n': 0.3,            # Strain hardening exponent - same as SG
+        'scgl_b': 6.0,            # Strain rate parameter - same as SG
+        'scgl_h': 0.03,           # Strain hardening parameter - same as SG
+        'scgl_Tm0': 692.7,        # Melting temperature (K) - same as SG
+        'scgl_mu0': 36.0E9,       # Initial shear modulus (Pa) - same as SG
+        'scgl_alpha': 0.07,       # SCGL-specific parameter for pressure effects
+        'scgl_gamma': 0.035,      # SCGL-specific parameter for temperature effects
+        'scgl_delta': 0.014       # SCGL-specific parameter for phase transitions
+    },
+    
+    'Brass': {
+        'density': 8500.0,        # kg/m³ (70% Cu, 30% Zn)
+        'sound_speed': 3800.0,    # m/s (estimated, between Cu and Zn)
+        'gruneisen': 1.95,        # dimensionless (estimated, between Cu and Zn)
+        'shear_modulus': 42.0E9,  # Pa (estimated from Young's modulus ~105 GPa)
+        'yield_strength': 100.0E6, # Pa
+        'spall_strength': 0.8E9,  # Pa (estimated, between Cu and Zn)
+        'specific_heat': 380.0,   # J/kg·K
+        'hugoniot_slope': 1.45,   # dimensionless (estimated)
+        'description': 'Copper-zinc alloy (70/30) with good machinability and shock properties',
+        # Steinberg-Guinan parameters (estimated for 70/30 brass)
+        'sg_Y0': 0.10E9,          # Initial yield strength (Pa)
+        'sg_Ymax': 0.35E9,        # Maximum yield strength (Pa)
+        'sg_beta': 45.0,          # Strain rate sensitivity parameter
+        'sg_n': 0.35,             # Strain hardening exponent
+        'sg_b': 7.0,              # Strain rate parameter
+        'sg_h': 0.02,             # Strain hardening parameter
+        'sg_Tm0': 1193.0,         # Melting temperature (K) = 920°C (average)
+        'sg_mu0': 42.0E9,         # Initial shear modulus (Pa)
+        # SCGL parameters (extended from SG)
+        'scgl_Y0': 0.10E9,        # Initial yield strength (Pa) - same as SG
+        'scgl_Ymax': 0.35E9,      # Maximum yield strength (Pa) - same as SG
+        'scgl_beta': 45.0,        # Strain rate sensitivity parameter - same as SG
+        'scgl_n': 0.35,           # Strain hardening exponent - same as SG
+        'scgl_b': 7.0,            # Strain rate parameter - same as SG
+        'scgl_h': 0.02,           # Strain hardening parameter - same as SG
+        'scgl_Tm0': 1193.0,       # Melting temperature (K) - same as SG
+        'scgl_mu0': 42.0E9,       # Initial shear modulus (Pa) - same as SG
+        'scgl_alpha': 0.075,      # SCGL-specific parameter for pressure effects
+        'scgl_gamma': 0.037,      # SCGL-specific parameter for temperature effects
+        'scgl_delta': 0.015       # SCGL-specific parameter for phase transitions
     }
 }
 
@@ -941,8 +1007,9 @@ def create_material_config_files(impactor_material: str, target_material: str,
         test_name
     )
     
-    # Determine filename (always with interface separation)
-    filename = "test18.yml"
+    # Determine filename - save in the same directory as this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    filename = os.path.join(script_dir, "test18.yml")
     
     # Save configuration
     save_yaml_config(config, filename)
