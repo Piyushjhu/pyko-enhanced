@@ -42,7 +42,10 @@ sys.path.insert(1, '/Users/piyushwanchoo/Documents/Post_Doc/DATA_ANALYSIS/Pyko_p
 from pyko import *
 import pyko
 
-runpy.run_path(path_name='import-modules-simple.py')
+# Get the directory where this script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
+import_modules_path = os.path.join(script_dir, 'import-modules-simple.py')
+runpy.run_path(path_name=import_modules_path)
 
 ########################################################################################################################
 # LOAD VELOCITY SWEEP PARAMETERS
@@ -58,9 +61,9 @@ with open(filein, 'r') as file:
 
 # Extract velocity sweep parameters
 velocity_sweep = config.get('velocity_sweep', {})
-min_velocity = velocity_sweep.get('min_velocity', 100.0)
-max_velocity = velocity_sweep.get('max_velocity', 1000.0)
-velocity_steps = velocity_sweep.get('velocity_steps', 10)
+min_velocity = velocity_sweep.get('min_velocity', 400.0)
+max_velocity = velocity_sweep.get('max_velocity', 750.0)
+velocity_steps = velocity_sweep.get('velocity_steps', 5)
 
 # Calculate velocity array
 if velocity_steps == 1:
@@ -378,6 +381,32 @@ if len(all_fsv_data) > 0:
     plt.savefig('./test18_a_multivelocity/fsv_vs_time.png', dpi=300, bbox_inches='tight')
     plt.show()
     
+    # Create zoomed figure for FSV vs Time (0.2 to 0.3 μs)
+    plt.figure(figsize=(12, 8))
+    
+    # Plot FSV curves for each velocity (same as before)
+    for i, (velocity, data) in enumerate(all_fsv_data.items()):
+        plt.plot(data['times'], data['fsv'], 
+                color=colors_list[i], 
+                linewidth=2, 
+                label=f'{velocity:.0f} m/s',
+                alpha=0.8)
+    
+    # Set x-axis limits to zoom in on 0.2 to 0.3 microseconds
+    plt.xlim(0.2, 0.3)
+    
+    # Add proper labels and title
+    plt.xlabel('Time (μs)', fontsize=12)
+    plt.ylabel('Free Surface Velocity (m/s)', fontsize=12)
+    plt.title('Free Surface Velocity vs Time (Zoomed: 0.2-0.3 μs)', fontsize=14, fontweight='bold')
+    plt.legend(title='Impact Velocity', fontsize=10)
+    plt.grid(True, alpha=0.3)  # Grid transparency
+    plt.tight_layout()
+    
+    # Save the zoomed plot
+    plt.savefig('./test18_a_multivelocity/fsv_vs_time_zoomed.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    
     # Create second figure for Peak FSV vs Impact Velocity
     plt.figure(figsize=(10, 6))
     plt.plot(velocities[:len(all_peak_fsv)], all_peak_fsv, 'ro-', linewidth=2, markersize=8)
@@ -393,8 +422,9 @@ if len(all_fsv_data) > 0:
     
     # Interface velocity plotting removed as requested
 
-    print("✅ Two plots generated:")
+    print("✅ Three plots generated:")
     print("   - fsv_vs_time.png: FSV vs Time for all impact velocities")
+    print("   - fsv_vs_time_zoomed.png: FSV vs Time zoomed (0.2-0.3 μs)")
     print("   - peak_fsv_vs_impact_velocity.png: Peak FSV vs Impact Velocity correlation")
     
     # Summary statistics

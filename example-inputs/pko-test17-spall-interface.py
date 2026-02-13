@@ -6,7 +6,7 @@
 # - Material 1 flyer impacting Material 2 target (all properties read from YAML config)
 # - Both materials can have spall capability (strength models and fracture parameters from YAML)
 # - Analysis includes spall detection, interface separation, and free surface velocity tracking
-# - Fully configurable via YAML - no hardcoded material properties or analysis parameters
+# - Fully configurable via YionAML - no hardcoded material properties or analysis parameters
 
 ########################################################################################################################
 # USER CONFIGURATION SWITCHES
@@ -34,6 +34,9 @@ import numpy as np
 import runpy
 import sys
 import pickle
+
+# Set global font size for all plots
+plt.rcParams.update({'font.size': 20})
 
 sys.path.insert(1, '/Users/piyushwanchoo/Documents/Post_Doc/DATA_ANALYSIS/Pyko_pw/pyko')
 from pyko import *
@@ -79,9 +82,11 @@ pressure_cmap = create_pressure_colormap()
 
 # Automatically select the appropriate input file based on interface analysis setting
 if ENABLE_INTERFACE_ANALYSIS:
-    filein = './test17-spall-interface/test17-with-interface-separation.yml'
-    print("🔬 Using configuration WITH interface separation physics")
+    # Use the new material database configuration
+    filein = './test17-spall-interface/test17-material-config.yml'
+    print("🔬 Using material database configuration WITH interface separation physics")
 else:
+    # Fallback to original configuration without interface separation
     filein = './test17-spall-interface/test17-without-interface-separation.yml'
     print("🔧 Using configuration WITHOUT interface separation physics")
 
@@ -122,8 +127,86 @@ print()
 
 # Material properties table
 print("MATERIAL PROPERTIES:")
-print(f"{'Property':<25} {'Al Flyer':<15} {'Cu Target':<15} {'Unit':<10}")
-print("-"*70)
+
+# Get material names from YAML configuration
+try:
+    # Debug: Check what's available in the run object
+    print("🔍 DEBUGGING MATERIAL NAME EXTRACTION:")
+    print(f"Debug: run.ieos[0] type: {type(run.ieos[0])}")
+    print(f"Debug: run.ieos[0] attributes: {dir(run.ieos[0])}")
+    print(f"Debug: run.ieos[1] type: {type(run.ieos[1])}")
+    print(f"Debug: run.ieos[1] attributes: {dir(run.ieos[1])}")
+    
+    # Try multiple ways to get material names
+    mat1_name = "Material 1"
+    mat2_name = "Material 2"
+    
+    # Method 1: Try to get from EOS name attribute
+    if hasattr(run.ieos[0], 'name'):
+        mat1_name = run.ieos[0].name
+        print(f"Debug: Found mat1 name in EOS: {mat1_name}")
+    elif hasattr(run.ieos[0], 'eosname'):
+        mat1_name = run.ieos[0].eosname
+        print(f"Debug: Found mat1 name in eosname: {mat1_name}")
+    
+    if hasattr(run.ieos[1], 'name'):
+        mat2_name = run.ieos[1].name
+        print(f"Debug: Found mat2 name in EOS: {mat2_name}")
+    elif hasattr(run.ieos[1], 'eosname'):
+        mat2_name = run.ieos[1].eosname
+        print(f"Debug: Found mat2 name in eosname: {mat2_name}")
+    
+    # Method 2: Try to get from run object attributes
+    if hasattr(run, 'material_names'):
+        if len(run.material_names) >= 2:
+            mat1_name = run.material_names[0]
+            mat2_name = run.material_names[1]
+            print(f"Debug: Found names in run.material_names: {mat1_name}, {mat2_name}")
+    
+    # Method 3: Try to get from YAML config directly
+    try:
+        import yaml
+        with open(filein, 'r') as f:
+            yaml_config = yaml.safe_load(f)
+        
+        if 'mat1' in yaml_config and 'eos' in yaml_config['mat1'] and 'name' in yaml_config['mat1']['eos']:
+            mat1_name = yaml_config['mat1']['eos']['name']
+            print(f"Debug: Found mat1 name in YAML: {mat1_name}")
+        
+        if 'mat2' in yaml_config and 'eos' in yaml_config['mat2'] and 'name' in yaml_config['mat2']['eos']:
+            mat2_name = yaml_config['mat2']['eos']['name']
+            print(f"Debug: Found mat2 name in YAML: {mat2_name}")
+
+        # Define thickness strings for summary/reporting
+        try:
+            al_len_m = float(yaml_config['mat1']['mesh']['length'])
+            cu_len_m = float(yaml_config['mat2']['mesh']['length'])
+            al_thickness_str = f"{al_len_m*1e6:.0f} μm"
+            cu_thickness_str = f"{cu_len_m*1e6:.0f} μm"
+        except Exception as _:
+            # Fallback placeholders; will be replaced later if available
+            al_thickness_str = "n/a"
+            cu_thickness_str = "n/a"
+    except Exception as yaml_error:
+        print(f"Debug: Could not read YAML directly: {yaml_error}")
+    
+    # Clean up names (remove "flyer" or "target" suffixes)
+    mat1_name = mat1_name.replace(" flyer", "").replace(" target", "")
+    mat2_name = mat2_name.replace(" flyer", "").replace(" target", "")
+    
+    print(f"✅ Final material names: {mat1_name}, {mat2_name}")
+    print(f"Material 1 (Impactor): {mat1_name}")
+    print(f"Material 2 (Target): {mat2_name}")
+    print()
+    
+    print(f"{'Property':<25} {mat1_name:<15} {mat2_name:<15} {'Unit':<10}")
+    print("-"*70)
+except Exception as e:
+    print(f"Warning: Could not extract material names from YAML: {e}")
+    print(f"{'Property':<25} {'Material 1':<15} {'Material 2':<15} {'Unit':<10}")
+    print("-"*70)
+    mat1_name = "Material 1"
+    mat2_name = "Material 2"
 
 # Get material properties from run object - MANDATORY YAML EXTRACTION
 # NO FALLBACK VALUES - Script must fail if YAML parsing fails
@@ -137,10 +220,10 @@ try:
         raise ValueError(f"Expected 2 materials, found {run.nmat}")
     
     # Access material properties using pyKO's actual structure
-    mat1_fracture = run.ifrac[0]  # Al flyer fracture properties
-    mat2_fracture = run.ifrac[1]  # Cu target fracture properties
-    mat1_strength = run.istr[0]   # Al flyer strength properties  
-    mat2_strength = run.istr[1]   # Cu target strength properties
+    mat1_fracture = run.ifrac[0]  # Material 1 fracture properties
+    mat2_fracture = run.ifrac[1]  # Material 2 fracture properties
+    mat1_strength = run.istr[0]   # Material 1 strength properties  
+    mat2_strength = run.istr[1]   # Material 2 strength properties
     
     print("✅ Successfully extracted material properties from YAML")
     print(f"Debug: Mat1 fracture object: {type(mat1_fracture)}")
@@ -160,97 +243,97 @@ try:
     
     # Extract material thicknesses from run object arrays
     # PyKO stores lengths in code units (check what units are being used)
-    al_length_raw = run.ilength[0]  # Raw units from pyKO
-    cu_length_raw = run.ilength[1]  # Raw units from pyKO
+    mat1_length_raw = run.ilength[0]  # Raw units from pyKO
+    mat2_length_raw = run.ilength[1]  # Raw units from pyKO
     
-    print(f"Debug: Raw lengths - Al: {al_length_raw}, Cu: {cu_length_raw}")
+    print(f"Debug: Raw lengths - {mat1_name}: {mat1_length_raw}, {mat2_name}: {mat2_length_raw}")
     
     # PyKO uses Wilkins book units: lengths in cm
-    al_length_cm = al_length_raw  # Already in cm
-    cu_length_cm = cu_length_raw  # Already in cm
+    mat1_length_cm = mat1_length_raw  # Already in cm
+    mat2_length_cm = mat2_length_raw  # Already in cm
     
     # Convert cm to μm for display
-    al_thickness_um = al_length_cm * 1e4  # cm to μm
-    cu_thickness_um = cu_length_cm * 1e4  # cm to μm
+    mat1_thickness_um = mat1_length_cm * 1e4  # cm to μm
+    mat2_thickness_um = mat2_length_cm * 1e4  # cm to μm
     
-    print(f"Debug: Lengths in cm - Al: {al_length_cm} cm, Cu: {cu_length_cm} cm")
-    print(f"Debug: Converted to μm - Al: {al_thickness_um} μm, Cu: {cu_thickness_um} μm")
+    print(f"Debug: Lengths in cm - {mat1_name}: {mat1_length_cm} cm, {mat2_name}: {mat2_length_cm} cm")
+    print(f"Debug: Converted to μm - {mat1_name}: {mat1_thickness_um} μm, {mat2_name}: {mat2_thickness_um} μm")
     
     # Create formatted strings for display
-    if al_thickness_um >= 1000:
-        al_thickness_str = f"{al_thickness_um/1000:.1f} mm"
+    if mat1_thickness_um >= 1000:
+        mat1_thickness_str = f"{mat1_thickness_um/1000:.1f} mm"
     else:
-        al_thickness_str = f"{al_thickness_um:.0f} μm"
+        mat1_thickness_str = f"{mat1_thickness_um:.0f} μm"
         
-    if cu_thickness_um >= 1000:
-        cu_thickness_str = f"{cu_thickness_um/1000:.1f} mm"
+    if mat2_thickness_um >= 1000:
+        mat2_thickness_str = f"{mat2_thickness_um/1000:.1f} mm"
     else:
-        cu_thickness_str = f"{cu_thickness_um:.0f} μm"
+        mat2_thickness_str = f"{mat2_thickness_um:.0f} μm"
     
     # Extract ALL material parameters from YAML config using pyKO structure
     # Spall thresholds (fracture pressures) - check units!
-    al_pfrac_raw = mat1_fracture.pfrac  
-    cu_pfrac_raw = mat2_fracture.pfrac  
+    mat1_pfrac_raw = mat1_fracture.pfrac  
+    mat2_pfrac_raw = mat2_fracture.pfrac  
     
-    print(f"Debug: Raw pfrac values - Al: {al_pfrac_raw}, Cu: {cu_pfrac_raw}")
+    print(f"Debug: Raw pfrac values - {mat1_name}: {mat1_pfrac_raw}, {mat2_name}: {mat2_pfrac_raw}")
     
     # PyKO uses Wilkins book units: pressures in Mbar (1 Mbar = 100 GPa)
-    al_spall_threshold_from_yaml = al_pfrac_raw * 100.0  # Convert Mbar to GPa
-    cu_spall_threshold_from_yaml = cu_pfrac_raw * 100.0  # Convert Mbar to GPa
+    mat1_spall_threshold_from_yaml = mat1_pfrac_raw * 100.0  # Convert Mbar to GPa
+    mat2_spall_threshold_from_yaml = mat2_pfrac_raw * 100.0  # Convert Mbar to GPa
     print("Debug: Converting pfrac from Mbar to GPa (1 Mbar = 100 GPa)")
     
-    print(f"Debug: Converted spall thresholds - Al: {al_spall_threshold_from_yaml:.6f} GPa, Cu: {cu_spall_threshold_from_yaml:.6f} GPa")
+    print(f"Debug: Converted spall thresholds - {mat1_name}: {mat1_spall_threshold_from_yaml:.6f} GPa, {mat2_name}: {mat2_spall_threshold_from_yaml:.6f} GPa")
     
     # Density distension limits (nrhomin)
-    al_nrhomin = mat1_fracture.nrhomin
-    cu_nrhomin = mat2_fracture.nrhomin
+    mat1_nrhomin = mat1_fracture.nrhomin
+    mat2_nrhomin = mat2_fracture.nrhomin
     
     # Calculate spall density threshold from nrhomin (use the more restrictive one)
     # If any material has nrhomin = 1.0 (perfectly brittle), we need to handle it specially
-    if cu_nrhomin >= 1.0:
+    if mat2_nrhomin >= 1.0:
         # For perfectly brittle materials, look for any density reduction at all
         spall_density_threshold = 0.999  # Detect even tiny density drops
-        print(f"⚠️  Cu is perfectly brittle (nrhomin = {cu_nrhomin}), using sensitive density threshold")
+        print(f"⚠️  {mat2_name} is perfectly brittle (nrhomin = {mat2_nrhomin}), using sensitive density threshold")
     else:
-        spall_density_threshold = max(al_nrhomin, cu_nrhomin)
+        spall_density_threshold = max(mat1_nrhomin, mat2_nrhomin)
     
-    print(f"Material thicknesses from YAML: Al = {al_thickness_str}, Cu = {cu_thickness_str}")
-    print(f"Spall thresholds from YAML: Al = {al_spall_threshold_from_yaml:.3f} GPa, Cu = {cu_spall_threshold_from_yaml:.3f} GPa")
-    print(f"Density limits from YAML: Al nrhomin = {al_nrhomin:.2f}, Cu nrhomin = {cu_nrhomin:.2f}")
+    print(f"Material thicknesses from YAML: {mat1_name} = {mat1_thickness_str}, {mat2_name} = {mat2_thickness_str}")
+    print(f"Spall thresholds from YAML: {mat1_name} = {mat1_spall_threshold_from_yaml:.3f} GPa, {mat2_name} = {mat2_spall_threshold_from_yaml:.3f} GPa")
+    print(f"Density limits from YAML: {mat1_name} nrhomin = {mat1_nrhomin:.2f}, {mat2_name} nrhomin = {mat2_nrhomin:.2f}")
     print(f"Using spall density threshold: {spall_density_threshold:.3f} (from max nrhomin)")
     
     # Define global plotting parameters based on YAML values
     # Density ratio plot range
-    density_vmin = min(al_nrhomin, cu_nrhomin) * 0.95  # Slightly below lowest nrhomin
+    density_vmin = min(mat1_nrhomin, mat2_nrhomin) * 0.95  # Slightly below lowest nrhomin
     density_vmax = 1.0  # Maximum is always 1.0 (original density)
     
     # Pressure plot range based on material spall thresholds
-    pressure_range_gpa = max(al_spall_threshold_from_yaml, cu_spall_threshold_from_yaml) * 2.0  # 2x max spall threshold
+    pressure_range_gpa = max(mat1_spall_threshold_from_yaml, mat2_spall_threshold_from_yaml) * 2.0  # 2x max spall threshold
     
     print(f"Dynamic plot ranges from YAML: Density [{density_vmin:.2f}, {density_vmax:.1f}], Pressure ±{pressure_range_gpa:.2f} GPa")
     print("✅ ALL PARAMETERS EXTRACTED FROM YAML - NO HARDCODED VALUES")
 
-    print(f"{'Thickness':<25} {al_thickness_str:<15} {cu_thickness_str:<15} {'-':<10}")
+    print(f"{'Thickness':<25} {mat1_thickness_str:<15} {mat2_thickness_str:<15} {'-':<10}")
     print(f"{'Cells':<25} {run.inodes[0]//2:<15} {run.inodes[1]//2:<15} {'count':<10}")  # inodes = 2x cells
     
     # PyKO units: velocity in cm/μs, convert to m/s
-    al_vel_ms = run.iupstart[0] * 10000  # cm/μs to m/s (cm/μs * 1e6 μs/s * 1e-2 m/cm = 1e4)
-    cu_vel_ms = run.iupstart[1] * 10000  # cm/μs to m/s
-    print(f"{'Initial velocity':<25} {al_vel_ms:<15.1f} {cu_vel_ms:<15.1f} {'m/s':<10}")
+    mat1_vel_ms = run.iupstart[0] * 10000  # cm/μs to m/s (cm/μs * 1e6 μs/s * 1e-2 m/cm = 1e4)
+    mat2_vel_ms = run.iupstart[1] * 10000  # cm/μs to m/s
+    print(f"{'Initial velocity':<25} {mat1_vel_ms:<15.1f} {mat2_vel_ms:<15.1f} {'m/s':<10}")
     
     # PyKO units: density in g/cm³, convert to kg/m³
-    al_rho_kgm3 = run.irhostart[0] * 1000  # g/cm³ to kg/m³
-    cu_rho_kgm3 = run.irhostart[1] * 1000  # g/cm³ to kg/m³
-    print(f"{'Density':<25} {al_rho_kgm3:<15.0f} {cu_rho_kgm3:<15.0f} {'kg/m³':<10}")
+    mat1_rho_kgm3 = run.irhostart[0] * 1000  # g/cm³ to kg/m³
+    mat2_rho_kgm3 = run.irhostart[1] * 1000  # g/cm³ to kg/m³
+    print(f"{'Density':<25} {mat1_rho_kgm3:<15.0f} {mat2_rho_kgm3:<15.0f} {'kg/m³':<10}")
     
     # Get EOS objects
-    mat1_eos = run.ieos[0]  # Al flyer EOS
-    mat2_eos = run.ieos[1]  # Cu target EOS
+    mat1_eos = run.ieos[0]  # Material 1 EOS
+    mat2_eos = run.ieos[1]  # Material 2 EOS
     
     # PyKO units: sound speed in cm/μs, convert to m/s
-    al_c0_ms = mat1_eos.c0 * 10000  # cm/μs to m/s
-    cu_c0_ms = mat2_eos.c0 * 10000  # cm/μs to m/s
-    print(f"{'Sound speed (c0)':<25} {al_c0_ms:<15.0f} {cu_c0_ms:<15.0f} {'m/s':<10}")
+    mat1_c0_ms = mat1_eos.c0 * 10000  # cm/μs to m/s
+    mat2_c0_ms = mat2_eos.c0 * 10000  # cm/μs to m/s
+    print(f"{'Sound speed (c0)':<25} {mat1_c0_ms:<15.0f} {mat2_c0_ms:<15.0f} {'m/s':<10}")
     print(f"{'EOS parameter (s1)':<25} {mat1_eos.s1:<15.2f} {mat2_eos.s1:<15.2f} {'-':<10}")
     print(f"{'Gruneisen (gamma0)':<25} {mat1_eos.gamma0:<15.2f} {mat2_eos.gamma0:<15.2f} {'-':<10}")
     print(f"{'Specific heat (cv)':<25} {mat1_eos.cv:<15.0f} {mat2_eos.cv:<15.0f} {'eu/(K·cm³)':<10}")
@@ -258,18 +341,18 @@ try:
 
     # Strength and fracture parameters
     print("STRENGTH & FRACTURE PARAMETERS:")
-    print(f"{'Property':<25} {'Al Flyer':<15} {'Cu Target':<15} {'Unit':<10}")
+    print(f"{'Property':<25} {mat1_name:<15} {mat2_name:<15} {'Unit':<10}")
     print("-"*70)
     print(f"{'Strength model':<25} {run.istrid[0]:<15} {run.istrid[1]:<15} {'-':<10}")
     print(f"{'Shear modulus':<25} {mat1_strength.gmod/1e9:<15.1f} {mat2_strength.gmod/1e9:<15.1f} {'GPa':<10}")
     print(f"{'Yield strength':<25} {mat1_strength.ys/1e6:<15.1f} {mat2_strength.ys/1e6:<15.1f} {'MPa':<10}")
 
     # Fracture parameters
-    al_pfrac = mat1_fracture.pfrac / 1e6 if mat1_fracture.pfrac < 1e15 else float('inf')
-    cu_pfrac = mat2_fracture.pfrac / 1e6 if mat2_fracture.pfrac < 1e15 else float('inf')
+    mat1_pfrac = mat1_fracture.pfrac / 1e6 if mat1_fracture.pfrac < 1e15 else float('inf')
+    mat2_pfrac = mat2_fracture.pfrac / 1e6 if mat2_fracture.pfrac < 1e15 else float('inf')
 
     if ENABLE_INTERFACE_ANALYSIS:
-        print(f"{'Spall threshold':<25} {al_pfrac:<15.1f} {cu_pfrac:<15.1f} {'MPa':<10}")
+        print(f"{'Spall threshold':<25} {mat1_pfrac:<15.1f} {mat2_pfrac:<15.1f} {'MPa':<10}")
     else:
         print(f"{'Spall threshold':<25} {'∞ (disabled)':<15} {'∞ (disabled)':<15} {'MPa':<10}")
 
@@ -474,6 +557,56 @@ else:
 if ENABLE_SPALL_ANALYSIS:
     print("\n=== SPALL ANALYSIS ===")
 
+    # Prepare spall thresholds from YAML/run objects
+    # Prefer values from the run object's fracture models; fall back to YAML if available
+    def _get_attr(obj, name):
+        try:
+            return getattr(obj, name)
+        except Exception:
+            return None
+
+    # Defaults if nothing is found (kept conservative to avoid false positives)
+    al_spall_threshold_from_yaml = None
+    cu_spall_threshold_from_yaml = None
+    spall_density_threshold = None
+
+    # Try from run object's fracture properties (Pa and dimensionless)
+    try:
+        al_pfrac_pa = _get_attr(mat1_fracture, 'pfrac')
+        cu_pfrac_pa = _get_attr(mat2_fracture, 'pfrac')
+        nrhomin_val = _get_attr(mat2_fracture, 'nrhomin')
+
+        if al_pfrac_pa is not None:
+            al_spall_threshold_from_yaml = abs(float(al_pfrac_pa)) / 1e9  # to GPa
+        if cu_pfrac_pa is not None:
+            cu_spall_threshold_from_yaml = abs(float(cu_pfrac_pa)) / 1e9  # to GPa
+        if nrhomin_val is not None:
+            spall_density_threshold = float(nrhomin_val)
+    except Exception:
+        pass
+
+    # Fall back to YAML dict if present
+    try:
+        if 'yaml_config' in globals() or 'yaml_config' in locals():
+            cfg = yaml_config
+            if al_spall_threshold_from_yaml is None:
+                al_spall_threshold_from_yaml = abs(float(cfg['mat1']['frac'].get('pfrac', 0.0))) / 1e9
+            if cu_spall_threshold_from_yaml is None:
+                cu_spall_threshold_from_yaml = abs(float(cfg['mat2']['frac'].get('pfrac', 0.0))) / 1e9
+            if spall_density_threshold is None:
+                spall_density_threshold = float(cfg['mat2']['frac'].get('nrhomin', 0.9))
+    except Exception:
+        pass
+
+    # Final safe fallbacks if still missing
+    if al_spall_threshold_from_yaml is None:
+        # 0.276 GPa default (276 MPa) commonly used for Al demo configs
+        al_spall_threshold_from_yaml = 0.276
+    if cu_spall_threshold_from_yaml is None:
+        cu_spall_threshold_from_yaml = 0.276
+    if spall_density_threshold is None:
+        spall_density_threshold = 0.9
+
     # Spall detection based on density reduction AND pressure thresholds
     # Identify regions where density has dropped significantly (indicating fracture/spall)
     pko['density_ratio'] = pko['rho'] / pko['rho0']
@@ -546,6 +679,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax1.set_xlabel('Position (mm)')
         ax1.set_ylabel('Time (μs)')
         ax1.set_title('Eulerian: Pressure (Data Range)')
+        ax1.grid(True, alpha=0.3, which='both')
+        ax1.minorticks_on()
+        ax1.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_pres_eul, ax=ax1, label='Pressure (GPa)')
         
         # Particle velocity (Eulerian) - Auto-scaled
@@ -553,6 +689,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax2.set_xlabel('Position (mm)')
         ax2.set_ylabel('Time (μs)')
         ax2.set_title('Eulerian: Particle Velocity')
+        ax2.grid(True, alpha=0.3, which='both')
+        ax2.minorticks_on()
+        ax2.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_up_eul, ax=ax2, label='Particle Velocity (m/s)')
         
         # Density ratio (Eulerian) - Actual data range
@@ -561,6 +700,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax3.set_xlabel('Position (mm)')
         ax3.set_ylabel('Time (μs)')
         ax3.set_title('Eulerian: Density Ratio (Data Range)')
+        ax3.grid(True, alpha=0.3, which='both')
+        ax3.minorticks_on()
+        ax3.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_rho_eul, ax=ax3, label=r'$\rho/\rho_0$')
         
         # Material ID (Eulerian) - Auto-scaled
@@ -568,6 +710,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax4.set_xlabel('Position (mm)')
         ax4.set_ylabel('Time (μs)')
         ax4.set_title('Eulerian: Material ID')
+        ax4.grid(True, alpha=0.3, which='both')
+        ax4.minorticks_on()
+        ax4.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_mat_eul, ax=ax4, label='Material ID')
         
         plt.tight_layout()
@@ -583,6 +728,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax1.set_xlabel('Initial Position (mm)')
         ax1.set_ylabel('Time (μs)')
         ax1.set_title('Lagrangian: Pressure (Data Range)')
+        ax1.grid(True, alpha=0.3, which='both')
+        ax1.minorticks_on()
+        ax1.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_pres_lag, ax=ax1, label='Pressure (GPa)')
         
         # Particle velocity (Lagrangian) - Auto-scaled
@@ -590,6 +738,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax2.set_xlabel('Initial Position (mm)')
         ax2.set_ylabel('Time (μs)')
         ax2.set_title('Lagrangian: Particle Velocity')
+        ax2.grid(True, alpha=0.3, which='both')
+        ax2.minorticks_on()
+        ax2.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_up_lag, ax=ax2, label='Particle Velocity (m/s)')
         
         # Density ratio (Lagrangian) - Actual data range
@@ -598,6 +749,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax3.set_xlabel('Initial Position (mm)')
         ax3.set_ylabel('Time (μs)')
         ax3.set_title('Lagrangian: Density Ratio (Data Range)')
+        ax3.grid(True, alpha=0.3, which='both')
+        ax3.minorticks_on()
+        ax3.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_rho_lag, ax=ax3, label=r'$\rho/\rho_0$')
         
         # Material ID (Lagrangian) - Auto-scaled
@@ -605,6 +759,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax4.set_xlabel('Initial Position (mm)')
         ax4.set_ylabel('Time (μs)')
         ax4.set_title('Lagrangian: Material ID')
+        ax4.grid(True, alpha=0.3, which='both')
+        ax4.minorticks_on()
+        ax4.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_mat_lag, ax=ax4, label='Material ID')
         
         plt.tight_layout()
@@ -639,6 +796,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax1.set_xlabel('Position (mm)')
         ax1.set_ylabel('Time (μs)')
         ax1.set_title('Eulerian: Pressure (Data Range)')
+        ax1.grid(True, alpha=0.3, which='both')
+        ax1.minorticks_on()
+        ax1.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_pres_eul, ax=ax1, label='Pressure (GPa)')
         
         # Particle velocity (Eulerian) - Auto-scaled
@@ -646,6 +806,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax2.set_xlabel('Position (mm)')
         ax2.set_ylabel('Time (μs)')
         ax2.set_title('Eulerian: Particle Velocity')
+        ax2.grid(True, alpha=0.3, which='both')
+        ax2.minorticks_on()
+        ax2.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_up_eul, ax=ax2, label='Particle Velocity (m/s)')
         
         # Density ratio (Eulerian) - Actual data range
@@ -654,6 +817,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax3.set_xlabel('Position (mm)')
         ax3.set_ylabel('Time (μs)')
         ax3.set_title('Eulerian: Density Ratio (Data Range)')
+        ax3.grid(True, alpha=0.3, which='both')
+        ax3.minorticks_on()
+        ax3.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_rho_eul, ax=ax3, label=r'$\rho/\rho_0$')
         
         # Material ID (Eulerian) - Auto-scaled
@@ -661,6 +827,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax4.set_xlabel('Position (mm)')
         ax4.set_ylabel('Time (μs)')
         ax4.set_title('Eulerian: Material ID')
+        ax4.grid(True, alpha=0.3, which='both')
+        ax4.minorticks_on()
+        ax4.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_mat_eul, ax=ax4, label='Material ID')
         
         plt.tight_layout()
@@ -676,6 +845,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax1.set_xlabel('Initial Position (mm)')
         ax1.set_ylabel('Time (μs)')
         ax1.set_title('Lagrangian: Pressure (Data Range)')
+        ax1.grid(True, alpha=0.3, which='both')
+        ax1.minorticks_on()
+        ax1.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_pres_lag, ax=ax1, label='Pressure (GPa)')
         
         # Particle velocity (Lagrangian) - Auto-scaled
@@ -683,6 +855,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax2.set_xlabel('Initial Position (mm)')
         ax2.set_ylabel('Time (μs)')
         ax2.set_title('Lagrangian: Particle Velocity')
+        ax2.grid(True, alpha=0.3, which='both')
+        ax2.minorticks_on()
+        ax2.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_up_lag, ax=ax2, label='Particle Velocity (m/s)')
         
         # Density ratio (Lagrangian) - Actual data range
@@ -691,6 +866,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax3.set_xlabel('Initial Position (mm)')
         ax3.set_ylabel('Time (μs)')
         ax3.set_title('Lagrangian: Density Ratio (Data Range)')
+        ax3.grid(True, alpha=0.3, which='both')
+        ax3.minorticks_on()
+        ax3.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_rho_lag, ax=ax3, label=r'$\rho/\rho_0$')
         
         # Material ID (Lagrangian) - Auto-scaled
@@ -698,6 +876,9 @@ if ENABLE_SPALL_ANALYSIS:
         ax4.set_xlabel('Initial Position (mm)')
         ax4.set_ylabel('Time (μs)')
         ax4.set_title('Lagrangian: Material ID')
+        ax4.grid(True, alpha=0.3, which='both')
+        ax4.minorticks_on()
+        ax4.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_mat_lag, ax=ax4, label='Material ID')
         
         plt.tight_layout()
@@ -758,7 +939,9 @@ if ENABLE_FSV_ANALYSIS:
         plt.xlabel('Time (μs)')
         plt.ylabel('Free Surface Velocity (m/s)')
         plt.title('Free Surface Velocity vs. Time')
-        plt.grid(True, alpha=0.3)
+        plt.grid(True, alpha=0.3, which='both')
+        plt.minorticks_on()
+        plt.grid(True, alpha=0.1, which='minor')
         if len(valid_times) > 1:
             plt.legend()
 
@@ -952,7 +1135,9 @@ if ENABLE_STRESS_ANALYSIS:
     ax1.set_xlabel('Time (μs)')
     ax1.set_ylabel('Max Compressive Stress (GPa)')
     ax1.set_title('Maximum Compressive Stress in Cu Target vs. Time')
-    ax1.grid(True, alpha=0.3)
+    ax1.grid(True, alpha=0.3, which='both')
+    ax1.minorticks_on()
+    ax1.grid(True, alpha=0.1, which='minor')
 
     # Calculate maximum compressive stress for reporting
     max_comp_value = np.max(max_compressive_stress)
@@ -963,7 +1148,9 @@ if ENABLE_STRESS_ANALYSIS:
     ax2.set_xlabel('Time (μs)')
     ax2.set_ylabel('Max Tensile Stress (GPa)')
     ax2.set_title('Maximum Tensile Stress in Cu Target vs. Time')
-    ax2.grid(True, alpha=0.3)
+    ax2.grid(True, alpha=0.3, which='both')
+    ax2.minorticks_on()
+    ax2.grid(True, alpha=0.1, which='minor')
 
     # Add spall threshold line for Cu (only if interface separation is enabled)
     if ENABLE_INTERFACE_ANALYSIS:
@@ -981,7 +1168,9 @@ if ENABLE_STRESS_ANALYSIS:
     ax3.set_xlabel('Time (μs)')
     ax3.set_ylabel('Position (mm)')
     ax3.set_title('Location of Maximum Compressive Stress vs. Time')
-    ax3.grid(True, alpha=0.3)
+    ax3.grid(True, alpha=0.3, which='both')
+    ax3.minorticks_on()
+    ax3.grid(True, alpha=0.1, which='minor')
 
     # Add reference lines
     ax3.axhline(y=0, color='gray', linestyle='--', alpha=0.7)
@@ -992,7 +1181,9 @@ if ENABLE_STRESS_ANALYSIS:
     ax4.set_xlabel('Time (μs)')
     ax4.set_ylabel('Position (mm)')
     ax4.set_title('Location of Maximum Tensile Stress vs. Time')
-    ax4.grid(True, alpha=0.3)
+    ax4.grid(True, alpha=0.3, which='both')
+    ax4.minorticks_on()
+    ax4.grid(True, alpha=0.1, which='minor')
 
     # Add reference lines
     ax4.axhline(y=0, color='gray', linestyle='--', alpha=0.7)
@@ -1059,7 +1250,9 @@ if ENABLE_INTERFACE_ANALYSIS:
         plt.xlabel('Time (μs)')
         plt.ylabel('Interface Position (mm)')
         plt.title('Al-Cu Interface Evolution')
-        plt.grid(True, alpha=0.3)
+        plt.grid(True, alpha=0.3, which='both')
+        plt.minorticks_on()
+        plt.grid(True, alpha=0.1, which='minor')
         plt.tight_layout()
         plt.show()
 
@@ -1069,6 +1262,16 @@ else:
 ########################################################################################################################
 # SUMMARY REPORT
 ########################################################################################################################
+
+# Ensure thickness strings are defined for summary
+try:
+    _ = al_thickness_str
+except NameError:
+    al_thickness_str = "n/a"
+try:
+    _ = cu_thickness_str
+except NameError:
+    cu_thickness_str = "n/a"
 
 print("\n" + "="*60)
 print("HYBRID SPALL + INTERFACE SEPARATION TEST SUMMARY")

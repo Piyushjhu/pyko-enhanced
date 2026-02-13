@@ -1,0 +1,144 @@
+# ==============================================================================
+# PyKO Test17 Shock Physics Simulation Configuration
+# ==============================================================================
+#
+# This file defines a shock physics simulation with the following setup:
+# - Test Name: Test17 Aluminum-Copper Single Velocity
+# - Impactor: Aluminum flyer
+# - Target: Copper target
+# - Impact Velocity: 1000.0 m/s
+# - Physics: Interface separation (spall) enabled
+#
+# ==============================================================================
+# SIMULATION PARAMETERS
+# ==============================================================================
+
+name: Test17 Aluminum-Copper Single Velocity  # Test name for identification
+outputfilename: ./pyko-test17-aluminum-copper-single-velocity-bin.dat  # Binary output file path
+outputformat: BIN  # Output format (BIN = binary)
+impact_velocity: 800.0  # Impact velocity (m/s)
+
+# ==============================================================================
+# TIMING PARAMETERS
+# ==============================================================================
+# These control the simulation duration and output frequency
+tstop: 4.0e-06  # Total simulation time (seconds)
+dtstart: 1.0e-10  # Initial time step (seconds)
+dtoutput: 1.0e-09  # Output frequency (seconds)
+
+# ==============================================================================
+# MATERIAL 1: IMPACTOR
+# ==============================================================================
+mat1:
+  mesh:
+    cells: 100
+    xstart: -0.005
+    length: 0.005
+  init:
+    up0: 1000.0
+    rho0: 2700.0
+    p0: 0.0
+    e0: 0.0
+    t0: 298.0
+  eos:
+    name: Aluminum flyer
+    type: MGR
+    rhoref: 2700.0
+    c0: 5200.0
+    s1: 1.5
+    gamma0: 2.0
+    cv: 896.0
+  str:
+    type: VM
+    gmod: 26000000000.0
+    ys: 207000000.0
+  frac:
+    pfrac: 276000000.0
+    nrhomin: 1.0
+
+# ==============================================================================
+# MATERIAL 2: TARGET
+# ==============================================================================
+mat2:
+  mesh:
+    cells: 200
+    xstart: 0.0
+    length: 0.01
+  init:
+    up0: 0.0
+    rho0: 8930.0
+    p0: 0.0
+    e0: 0.0
+    t0: 298.0
+  eos:
+    name: Copper target
+    type: MGR
+    rhoref: 8930.0
+    c0: 3900.0
+    s1: 1.49
+    gamma0: 1.99
+    cv: 385.0
+  str:
+    type: VM
+    gmod: 46000000000.0
+    ys: 95600000.0
+  frac:
+    pfrac: 1500000000.0
+    nrhomin: 1.0
+
+# ==============================================================================
+# BOUNDARY CONDITIONS
+# ==============================================================================
+boundaries:
+  ibc: FREE
+  ip0: 0.0
+  obc: FREE
+  op0: 0.0
+
+# ==============================================================================
+# GEOMETRY AND PHYSICS PARAMETERS
+# ==============================================================================
+geometry: PLA
+gravity: 0.0
+pvoid: 0.0
+nmat: 2
+
+# ==============================================================================
+# UNITS DEFINITION
+# ==============================================================================
+# User input parameters units - what units you specify values in
+# PyKO will automatically convert these to code units internally
+units:
+  time: second  # Time units for tstop, dtstart, dtoutput
+  length: meter  # Length units for mesh dimensions
+  velocity: meter/second  # Velocity units for up0
+  density: kg/m^3  # Density units for rho0, rhoref
+  mass: kg  # Mass units
+  pressure: Pa  # Pressure units for p0, pfrac, gmod, ys
+  temperature: K  # Temperature units for t0
+  energy: J  # Energy units
+  sp_energy: J/kg  # Specific energy units for e0
+  sp_entropy: J/kg/K  # Specific entropy units
+  sp_heat_cap: J/kg/K  # Specific heat capacity units for cv
+  gravity: m/s^2  # Gravitational acceleration units
+  s2: second/meter  # Hugoniot parameter units
+
+# Code units - internal units used by PyKO (Wilkins book units)
+# These are automatically converted from user units
+codeunits:
+  time: microseconds  # Internal time units
+  length: cm  # Internal length units
+  mass: g  # Internal mass units
+  density: g/cm^3  # Internal density units
+  relative_volume: dimensionless  # Volume ratio units
+  velocity: cm/microsecond  # Internal velocity units (10 km/s)
+  pressure: megabar  # Internal pressure units (100 GPa)
+  temperature: K  # Internal temperature units
+  energy: eu  # Internal energy units (10^12 ergs)
+  sp_energy: eu/g  # Internal specific energy units
+  sp_heat_cap: eu/K/g  # Internal specific heat capacity units
+  sp_entropy: eu/K/g  # Internal specific entropy units
+  ie_perv0: eu/cm^3  # Internal energy per volume units
+  cv_perv0: eu/cm^3/K  # Internal heat capacity per volume units
+  gravity: cm/microseconds^2  # Internal gravitational acceleration units
+  s2: microseconds/cm  # Internal Hugoniot parameter units
