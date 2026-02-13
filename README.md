@@ -53,6 +53,8 @@ This version includes an experimental interface separation criterion. The method
 
 Example input files and scripts live in **`example-inputs/`**. Tabular EOS models are in **`eos/`**. Below is how to run each test.
 
+**Step-by-step example runs and expected results:** see **[example-inputs/TUTORIAL.md](example-inputs/TUTORIAL.md)** for a short tutorial with commands, terminal output, and result files for Test 17, 18a, and 18b.
+
 ### Directory layout
 
 ```
