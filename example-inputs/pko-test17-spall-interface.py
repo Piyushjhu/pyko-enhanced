@@ -16,7 +16,7 @@
 ENABLE_INTERFACE_ANALYSIS = True  # Set to False to skip interface separation analysis
 ENABLE_FSV_ANALYSIS = True         # Set to False to skip free surface velocity analysis
 ENABLE_STRESS_ANALYSIS = True      # Set to False to skip stress analysis
-ENABLE_SPALL_ANALYSIS = True       # Set to False to skip spall analysis
+ENABLE_SPALL_ANALYSIS = True      # Set to False to skip spall analysis
 
 print("=== ANALYSIS MODULE CONFIGURATION ===")
 print(f"Interface Analysis: {'ENABLED' if ENABLE_INTERFACE_ANALYSIS else 'DISABLED'}")
@@ -31,18 +31,21 @@ import matplotlib.cm as cm
 import matplotlib.colors as colors
 from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
-import runpy
+import os
 import sys
 import pickle
+
+# Paths relative to this file so the script runs from any cwd (e.g. repo root or example-inputs)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, '..'))
 
 # Set global font size for all plots
 plt.rcParams.update({'font.size': 20})
 
-sys.path.insert(1, '/Users/piyushwanchoo/Documents/Post_Doc/DATA_ANALYSIS/Pyko_pw/pyko')
+sys.path.insert(1, _REPO_ROOT)
 from pyko import *
 import pyko
-
-runpy.run_path(path_name='import-modules.py')
+# Not using example-inputs/import-modules.py: that pulls hvplot/holoviews for notebooks; this script only needs pyko + mpl.
 
 ########################################################################################################################
 # CUSTOM COLORMAP FOR PRESSURE VISUALIZATION
@@ -59,7 +62,7 @@ def create_pressure_colormap():
         '#8B0000',  # Dark red (max tension)
         '#CD5C5C',  # Medium red
         '#F0A0A0',  # Light red
-        '#D3D3D3',  # Light gray (zero pressure)
+        '#FFFFFF',  # White (zero pressure)
         '#A0C8F0',  # Light blue
         '#5C85CD',  # Medium blue
         '#00008B'   # Dark blue (max compression)
@@ -79,15 +82,377 @@ def create_pressure_norm(pres_min, pres_max):
 pressure_cmap = create_pressure_colormap()
 
 ########################################################################################################################
+# X-T DIAGRAM RENDERING
+########################################################################################################################
+
+def xt_pcolormesh(ax, xseries, cseries, **kwargs):
+    """Render an x-t diagram as a per-cell pcolormesh instead of scatter markers.
+
+    Scatter draws one discrete circular marker per (cell, output-time), which
+    aliases the sharp shock fronts into a staircase of 'teeth' and leaves gaps
+    between output rows. pcolormesh tiles the cells edge-to-edge, giving clean
+    wave fronts and revealing the low-amplitude reflected/release waves. Unlike
+    tricontourf it does NOT interpolate: every tile is one true cell x one
+    output dump, so the plot resolution is exactly the data resolution
+    (n_cells wide by n_output_times tall). To make the tiles finer, increase
+    the mesh 'cells' (x-resolution) and/or decrease 'dtoutput' (t-resolution)
+    in the YAML config. Figure dpi only changes how many screen pixels each tile
+    spans, not how much information is shown.
+
+    Assumes every output time has the same number of cells in the same
+    Lagrangian order. This holds for pyKO binary output: spall fractures insert
+    void/boundary cells that are NOT written to the file, so the written zones
+    are a fixed, mass-conserving, index-aligned set (verified: per-cell mass is
+    identical across all frames). Falls back to scatter if the data is ragged.
+
+    x is scaled by 10 (cm -> mm) to match the original scatter calls.
+    """
+    x = np.asarray(xseries, dtype=float); c = np.asarray(cseries, dtype=float)
+    t = np.asarray(pko['time'], dtype=float)
+    times = np.unique(t); ntime = len(times); ncell = len(t) // ntime if ntime else 0
+    if ntime == 0 or ntime * ncell != len(t):
+        # ragged grid (unexpected) -> keep the old scatter behaviour
+        return ax.scatter(x * 10, t, c=c, **kwargs)
+    order = np.argsort(t, kind='stable')  # group rows by time, preserve cell order
+    X = (x[order] * 10).reshape(ntime, ncell)
+    C = c[order].reshape(ntime, ncell)
+    if np.allclose(X, X[0]):
+        # Lagrangian frame: x is the same at every time -> use 1-D separable
+        # (monotonic) coordinates so pcolormesh gets exact cell edges, no warning.
+        return ax.pcolormesh(X[0], times, C, shading='nearest', **kwargs)
+    # Eulerian frame: the mesh moves, so x is a full 2-D field (a cell's
+    # position is not monotonic in time -> pcolormesh emits a benign
+    # cell-edge warning; the deforming quad mesh is still the correct picture).
+    Y = t[order].reshape(ntime, ncell)
+    return ax.pcolormesh(X, Y, C, shading='nearest', **kwargs)
+
+
+def plot_spall_zoom(pko, pressure_cmap, pressure_norm, density_min, density_max, dpi=300):
+    """Second figure: a high-resolution Lagrangian x-t zoom on the spall region.
+
+    The spall plane is found automatically as the point of peak tension (the
+    most negative Lagrangian stress) in the whole space-time field. A window is
+    framed around the strongly-tensile zone (cells reaching >= 50% of the peak
+    tension), so the zoom follows the physics if the setup changes rather than
+    being hard-coded. Two panels are shown at the same location -- stress (where
+    the two release waves cross and tension peaks) and density ratio (where the
+    fracture opens and rho/rho0 drops) -- reusing xt_pcolormesh so it is the
+    exact per-cell view at full data resolution.
+
+    Returns without plotting if the data never goes into tension.
+    """
+    xmm = np.asarray(pko['pos0'], dtype=float) * 10.0   # mm, matches xt_pcolormesh x-axis
+    t   = np.asarray(pko['time'], dtype=float)           # microseconds
+    p   = np.asarray(pko['pres'], dtype=float)           # GPa
+    ip = int(np.argmin(p)); peak = p[ip]
+    if peak >= 0:
+        print("Spall zoom: no tension in the data; skipping zoom figure.")
+        return
+    sel = p <= 0.5 * peak                                # strongly-tensile cells
+    xs = xmm[sel]; ts = t[sel]
+    xpad = 0.15 * (xs.max() - xs.min()) + 0.003
+    tpad = 0.15 * (ts.max() - ts.min()) + 0.002
+    xlim = (xs.min() - xpad, xs.max() + xpad)
+    ylim = (ts.min() - tpad, ts.max() + tpad)
+
+    print(f"Creating high-resolution spall-region zoom "
+          f"(peak tension {peak:.2f} GPa at x0={xmm[ip]:.3f} mm, t={t[ip]*1e3:.1f} ns)...")
+    fig, (axa, axb) = plt.subplots(1, 2, figsize=(14, 8), dpi=dpi)
+    fig.suptitle(f'Spall region zoom - peak tension {peak:.2f} GPa '
+                 f'@ x0={xmm[ip]:.3f} mm, t={t[ip]*1e3:.1f} ns', fontsize=18)
+
+    mA = xt_pcolormesh(axa, pko.pos0, pko.pres, cmap=pressure_cmap, norm=pressure_norm)
+    axa.set_title('Lagrangian: Stress (GPa)')
+    plt.colorbar(mA, ax=axa, label='Stress (GPa)')
+    mB = xt_pcolormesh(axb, pko.pos0, pko.density_ratio,
+                       cmap='coolwarm', vmin=density_min, vmax=density_max)
+    axb.set_title('Lagrangian: Density Ratio')
+    plt.colorbar(mB, ax=axb, label=r'$\rho/\rho_0$')
+    for ax in (axa, axb):
+        ax.set_xlim(*xlim); ax.set_ylim(*ylim)
+        ax.set_xlabel('Initial Position (mm)'); ax.set_ylabel('Time (μs)')
+        ax.grid(True, alpha=0.2, which='both')
+        # crosshair marks the peak-tension (spall) point
+        ax.axvline(xmm[ip], color='k', ls=':', lw=0.9, alpha=0.6)
+        ax.axhline(t[ip], color='k', ls=':', lw=0.9, alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+
+
+def _compute_xt_fans(pko, run=None):
+    """Compute the x-t rarefaction-fan data: (a) fan edges traced from pyKO's own
+    sound-speed field and (b) analytic Hugoniot tracking of the shock and the
+    plastic/elastic release fronts. Returns a dict for _draw_xt_fans, or None.
+
+    (a) SIMULATION fans -- a release fan is bounded by two characteristics. In
+    initial-position coordinates h = x0 a characteristic obeys
+        dh/dt = +/- c * (rho / rho0)                                (Lagrangian)
+    with c = pyKO's local sound speed. A head (shock arrival) and a tail (bottom
+    of the release dip) are integrated into the material for each free surface.
+
+    (b) ANALYTIC tracking -- impedance-match the flyer/target for the impact
+    particle velocity up, then track: shock Us = c0 + s*up; plastic (bulk)
+    release c0 + 2s*up; and the elastic release head at the shocked-state
+    longitudinal Lagrangian speed sqrt(c_bulk_E^2 + 4G/3rho)*(rho/rho0). The
+    elastic head is fast but limited to ~HEL amplitude.
+    """
+    from scipy.interpolate import RegularGridInterpolator
+    from scipy.ndimage import uniform_filter1d
+    # ---- gridded fields (ntime, ncell) on the fixed Lagrangian mesh ----------
+    t_all = np.asarray(pko['time'], dtype=float)
+    times = np.unique(t_all); nt = len(times)
+    ncell = len(t_all) // nt if nt else 0
+    if nt < 3 or nt * ncell != len(t_all):
+        print("x-t fans: unexpected/ragged data; skipping."); return None
+    order = np.argsort(t_all, kind='stable')
+    h = np.asarray(pko['pos0'], dtype=float)[order].reshape(nt, ncell)[0] * 10.0   # mm, fixed
+    P  = np.asarray(pko['pres'], dtype=float)[order].reshape(nt, ncell)            # GPa
+    cs = np.asarray(pko['cs'],   dtype=float)[order].reshape(nt, ncell) * 1e-3     # m/s -> mm/us
+    rr = (np.asarray(pko['rho'], dtype=float) /
+          np.asarray(pko['rho0'], dtype=float))[order].reshape(nt, ncell)
+    Vlag = cs * rr                                       # mm/us, Lagrangian char. speed
+    Vlag[0] = Vlag[1]                                    # cs = 0 at t = 0 -> use next frame
+    si = np.argsort(h); h = h[si]; P = P[:, si]; Vlag = Vlag[:, si]   # h strictly ascending
+    speed = RegularGridInterpolator((times, h), Vlag, bounds_error=False, fill_value=None)
+
+    def launch_times(cell):
+        """(head, tail) launch times at a free-surface cell, read from its own
+        compression history: head = shock arrival, tail = bottom of release dip."""
+        p = P[:, cell]; pc = float(np.nanmax(p))
+        if pc <= 0:
+            return times[0], times[0]
+        ps = uniform_filter1d(p, 5)                      # light smoothing vs cell noise
+        above = np.where(ps > 0.1 * pc)[0]
+        t_head = times[above[0]] if above.size else times[0]
+        ipk = int(np.argmax(ps))
+        rise = np.where(np.diff(ps[ipk:]) > 0)[0]        # first up-tick after the peak
+        k_tail = ipk + (rise[0] + 1 if rise.size else nt - 1 - ipk)
+        return t_head, times[min(k_tail, nt - 1)]
+
+    def trace(h0, t0, sign):
+        """Integrate dh/dt = sign * c*rho/rho0 from (h0, t0) into the material."""
+        hs = [h0]; ts = [t0]; hc = h0
+        for k in range(int(np.searchsorted(times, t0)), nt - 1):
+            v = float(speed((times[k], np.clip(hc, h[0], h[-1]))))
+            hc = hc + sign * v * (times[k + 1] - times[k])
+            if hc < h[0] or hc > h[-1]:
+                break
+            hs.append(hc); ts.append(times[k + 1])
+        return np.asarray(hs), np.asarray(ts)
+
+    cf = int(np.argmin(h)); ct = int(np.argmax(h))       # flyer FS (left), target FS (right)
+    h_ff, h_tf = h[cf], h[ct]
+    fh, ft = launch_times(cf); th, tt = launch_times(ct)
+    fan_fh = trace(h_ff, fh, +1); fan_ft = trace(h_ff, ft, +1)   # flyer release -> +h
+    fan_th = trace(h_tf, th, -1); fan_tt = trace(h_tf, tt, -1)   # target release -> -h
+    print(f"Rarefaction fans (sim): flyer surface head@{fh:.4f}/tail@{ft:.4f} us, "
+          f"target surface head@{th:.4f}/tail@{tt:.4f} us")
+
+    # ---- (b) analytic Hugoniot tracking (calculation-based) ------------------
+    analytic = None
+    if run is not None and getattr(run, 'nmat', 0) >= 2:
+        try:
+            from scipy.optimize import brentq
+            jf, jt = 0, run.nmat - 1                      # flyer (left), target (right)
+            # pyKO code units -> SI: c0,up in cm/us (x1e4 = m/s); rho0 in g/cm3; length cm (x10 = mm)
+            cF = run.ieos[jf].c0 * 1e4; sF = run.ieos[jf].s1; rF = run.ieos[jf].rho0
+            cT = run.ieos[jt].c0 * 1e4; sT = run.ieos[jt].s1; rT = run.ieos[jt].rho0
+            # shear modulus / yield (code pressure unit = megabar -> x1e11 = Pa); may be absent
+            GF = getattr(run.istr[jf], 'gmod', 0.0) * 1e11; YF = getattr(run.istr[jf], 'ys', 0.0) * 1e11
+            GT = getattr(run.istr[jt], 'gmod', 0.0) * 1e11; YT = getattr(run.istr[jt], 'ys', 0.0) * 1e11
+            Vimp = float(run.iupstart[jf]) * 1e4          # flyer impact velocity (m/s)
+            Lf = abs(run.ilength[jf]) * 10.0              # flyer thickness (mm)
+            hff = run.ixstart[jf] * 10.0                  # flyer free surface (mm)
+
+            def elastic_lag(c0, s, G, rho0_si, u):
+                """Shocked-state longitudinal-elastic Lagrangian speed (m/s):
+                a_L = sqrt(c_bulk_Euler^2 + 4G/3rho) * (rho/rho0), with the bulk
+                (Hugoniot) speed and the shear term from the strength model."""
+                Us_ = c0 + s*u; comp = Us_/(Us_-u); cbE = (c0 + 2*s*u)/comp
+                rho = rho0_si*comp
+                return np.sqrt(cbE**2 + (4.0/3.0)*G/rho)*comp
+            if Vimp > 0:
+                # impedance match: rho0_T*(cT+sT*u)*u = rho0_F*(cF+sF*(V-u))*(V-u)
+                up = brentq(lambda u: rT*(cT+sT*u)*u - rF*(cF+sF*(Vimp-u))*(Vimp-u), 1.0, Vimp-1.0)
+                upF = Vimp - up                           # flyer shock up-jump
+                UsT = (cT + sT*up)   * 1e-3               # mm/us
+                relT = (cT + 2*sT*up) * 1e-3
+                UsF = (cF + sF*upF)  * 1e-3
+                relF = (cF + 2*sF*upF) * 1e-3
+                t1 = Lf / UsF                             # shock reaches flyer FS
+                tI = t1 + Lf / relF                       # release back at interface
+                t_sfs = h_tf / UsT                        # shock reaches target FS
+                # would the PLASTIC (bulk) release catch the shock? h_rel = h_shock
+                t_catch = relT * tI / (relT - UsT) if relT > UsT else np.inf
+                h_catch = UsT * t_catch
+                # elastic (longitudinal) release head: fast precursor, HEL-limited amplitude
+                aeF = elastic_lag(cF, sF, GF, rF*1e3, upF) * 1e-3   # mm/us
+                aeT = elastic_lag(cT, sT, GT, rT*1e3, up)  * 1e-3
+                tIe = t1 + Lf/aeF                          # elastic release back at interface
+                te_catch = aeT * tIe / (aeT - UsT) if aeT > UsT else np.inf
+                he_catch = UsT * te_catch
+                e_before = he_catch < h_tf                 # catches shock before breakout?
+                he_end = min(he_catch, h_tf); te_end = min(te_catch, tIe + h_tf/aeT)
+                # HEL ~ Y*(K0 + 4G/3)/(2G); K0 = rho0*c0^2
+                K0T = (rT*1e3)*cT**2
+                HELT = (YT*(K0T + 4/3*GT)/(2*GT))/1e9 if GT > 0 else 0.0
+                Pshock = rT*(cT+sT*up)*up * 1e-3          # GPa (rho0 g/cm3 * m/s^2 -> /1e3? see note)
+                analytic = dict(up=up, UsT=UsT*1e3, relT=relT*1e3, aeT=aeT*1e3, aeF=aeF*1e3,
+                                t1=t1, tI=tI, t_sfs=t_sfs, h_catch=h_catch, t_catch=t_catch,
+                                he_catch=he_catch, te_catch=te_catch,
+                                shock=(np.array([0.0, h_tf]), np.array([0.0, t_sfs])),
+                                rel_f=(np.array([hff, 0.0]), np.array([t1, tI])),
+                                # plastic release runs from interface up to the free surface
+                                rel_t=(np.array([0.0, relT*(min(tI + h_tf/relT, times.max()) - tI)]),
+                                       np.array([tI, min(tI + h_tf/relT, times.max())])),
+                                # elastic head: flyer FS -> interface -> catch point (or free surface)
+                                elastic=(np.array([hff, 0.0, he_end]), np.array([t1, tIe, te_end])),
+                                e_catch_pt=(he_catch, te_catch) if e_before else None,
+                                HELT=HELT)
+                catches = h_catch < h_tf and t_catch < t_sfs
+                print(f"Analytic: up={up:.0f} m/s, Us(target)={UsT*1e3:.0f} m/s.")
+                print(f"  Plastic release (C+2S*up={relT*1e3:.0f}) catches shock at "
+                      f"h={h_catch:.2f} mm -> {'CATCHES in target' if catches else 'NEVER in target'} "
+                      f"(target={h_tf:.2f} mm).")
+                print(f"  Elastic head   (long. {aeT*1e3:.0f}) would overtake shock at "
+                      f"h={he_catch:.2f} mm -> "
+                      f"{'OVERTAKES before breakout' if e_before else f'target only {h_tf:.2f} mm, shock breaks out first'}; "
+                      f"amplitude ~HEL ({HELT:.2f} GPa) << shock, so peak stress ~unattenuated either way.")
+        except Exception as e:
+            print(f"Analytic tracking skipped: {e}")
+
+    amax = float(np.nanmax(np.abs(P)))
+    return dict(h=h, times=times, P=P, nt=nt, ncell=ncell,
+                fan_fh=fan_fh, fan_ft=fan_ft, fan_th=fan_th, fan_tt=fan_tt,
+                h_ff=h_ff, h_tf=h_tf, analytic=analytic, amax=amax)
+
+
+def _draw_xt_fans(ax, d, pressure_cmap, transpose=False, legend=True, fs=7, legend_loc='upper left', norm=None):
+    """Draw the x-t rarefaction-fan diagram (data from _compute_xt_fans) onto ax.
+    If transpose, the axes are swapped so time is horizontal and initial position
+    is vertical (used for stacking above a free-surface-velocity trace)."""
+    from matplotlib.colors import AsinhNorm
+    h, times, P = d['h'], d['times'], d['P']; analytic = d['analytic']
+    if norm is None:
+        norm = AsinhNorm(linear_width=0.1 * d['amax'], vmin=-d['amax'], vmax=d['amax'])
+    if transpose:
+        qm = ax.pcolormesh(times, h, P.T, cmap=pressure_cmap, norm=norm, shading='nearest')
+    else:
+        qm = ax.pcolormesh(h, times, P, cmap=pressure_cmap, norm=norm, shading='nearest')
+    def L(pos, tim):                 # (x, y) with the chosen orientation
+        return (tim, pos) if transpose else (pos, tim)
+    def posline(val, **kw):          # a constant-position reference line
+        (ax.axhline if transpose else ax.axvline)(val, **kw)
+    ax.plot(*L(*d['fan_fh']), color='#0044ff', lw=2.0, label='flyer rarefaction: head (sim)')
+    ax.plot(*L(*d['fan_ft']), color='#0044ff', lw=2.0, ls='--', label='flyer rarefaction: tail (sim)')
+    ax.plot(*L(*d['fan_th']), color='#00a000', lw=2.0, label='target rarefaction: head (sim)')
+    ax.plot(*L(*d['fan_tt']), color='#00a000', lw=2.0, ls='--', label='target rarefaction: tail (sim)')
+    if analytic is not None:
+        hr = np.r_[analytic['rel_f'][0], analytic['rel_t'][0]]
+        tr_ = np.r_[analytic['rel_f'][1], analytic['rel_t'][1]]
+        ax.plot(*L(analytic['shock'][0], analytic['shock'][1]), 'k--', lw=1.8, label='shock (C+S·up)')
+        ax.plot(*L(hr, tr_), 'k-', lw=1.8, label='plastic release (C+2S·up)')
+        ax.plot(*L(analytic['elastic'][0], analytic['elastic'][1]), color='#ff8800', lw=2.0,
+                label=f"elastic release head (~HEL {analytic['HELT']:.2f} GPa)")
+        if analytic['e_catch_pt'] is not None:
+            xy = L(np.array([analytic['e_catch_pt'][0]]), np.array([analytic['e_catch_pt'][1]]))
+            ax.plot(xy[0], xy[1], 'o', color='#ff8800', ms=8, mec='k', zorder=5)
+    posline(0.0,        color='0.35', ls='-.', lw=1.2, label='flyer / target interface')
+    posline(d['h_ff'],  color='0.55', ls=':',  lw=1.2, label='flyer free surface')
+    posline(d['h_tf'],  color='k',    ls='--', lw=1.2, label='target free surface')
+    prange = (d['h_ff'] - 0.05 * (d['h_tf'] - d['h_ff']), d['h_tf'] * 1.03)
+    if transpose:
+        ax.set_xlim(0, times.max()); ax.set_ylim(*prange); ax.invert_yaxis()
+        ax.set_ylabel('Initial Position (mm)')
+    else:
+        ax.set_xlim(*prange); ax.set_ylim(0, times.max())
+        ax.set_xlabel('Initial Position (mm)'); ax.set_ylabel('Time (μs)')
+    if legend:
+        ax.legend(loc=legend_loc, fontsize=fs)
+    return qm
+
+
+def plot_rarefaction_fans(pko, pressure_cmap, run=None, dpi=200):
+    """Lagrangian x-t stress diagram: sim-traced rarefaction fans plus analytic
+    Hugoniot tracking of the shock and the plastic/elastic release fronts."""
+    d = _compute_xt_fans(pko, run)
+    if d is None:
+        return
+    fig, ax = plt.subplots(figsize=(10, 8), dpi=dpi)
+    _draw_xt_fans(ax, d, pressure_cmap, transpose=False)
+    ax.set_title('Rarefaction fans (sim) vs analytic shock/release tracking')
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_xt_fsv_stack(pko, pressure_cmap, run=None, dpi=200):
+    """Stacked figure relating the x-t diagram to the free-surface velocity:
+    top = x-t stress map + wave tracking (time horizontal, position vertical with
+    the target free surface at the bottom); bottom = free-surface velocity vs
+    time on the SAME time axis. Vertical guide lines mark the wave arrivals that
+    produce the FSV features (shock breakout -> rise, spall -> pullback)."""
+    d = _compute_xt_fans(pko, run)
+    if d is None:
+        return
+    # free-surface velocity = up of the right-most (free-surface) node at each time
+    times = np.sort(pko['time'].unique())
+    fsv = np.array([pko.loc[g.index[np.argmax(g['pos'].values)], 'up']
+                    for _, g in pko.groupby('time')])
+    tg = np.array([t for t, _ in pko.groupby('time')])
+    o = np.argsort(tg); tg = tg[o]; fsv = fsv[o]
+    # guide-line times: shock breakout, FSV peak, spall pull-back minimum
+    guides = []
+    if d['analytic'] is not None and np.isfinite(d['analytic']['t_sfs']):
+        guides.append(('breakout', d['analytic']['t_sfs']))
+    if fsv.size > 5:
+        ipk = int(np.argmax(fsv)); guides.append(('peak', tg[ipk]))
+        seg = fsv[ipk:]
+        if seg.size > 2:
+            imin = ipk + int(np.argmin(seg))         # spall pull-back = velocity minimum after peak
+            if imin > ipk:
+                guides.append(('pull-back', tg[imin]))
+    # constrained_layout auto-spaces the panels so labels never collide
+    fig = plt.figure(figsize=(11, 13), dpi=dpi, constrained_layout=True)
+    gs = fig.add_gridspec(4, 1, height_ratios=[0.10, 3, 1.1, 1.1])
+    axC = fig.add_subplot(gs[0])                       # stress colorbar band (top)
+    axT = fig.add_subplot(gs[1])
+    axB = fig.add_subplot(gs[2], sharex=axT)
+    axL = fig.add_subplot(gs[3]); axL.axis('off')     # dedicated legend panel
+    qm = _draw_xt_fans(axT, d, pressure_cmap, transpose=True, legend=False)
+    axT.tick_params(labelbottom=False)                # time labels only on the FSV panel below
+    cb = fig.colorbar(qm, cax=axC, orientation='horizontal')
+    _am = d['amax']                                   # clean ticks (asinh auto-ticks crowd at 0)
+    _ticks = [t for t in (-_am, -1.0, 0.0, 1.0, _am) if -_am <= t <= _am]
+    cb.set_ticks(_ticks); cb.ax.set_xticklabels([f'{t:.1f}' for t in _ticks])
+    cb.set_label('Stress (GPa) — pyKO  (tension <0<  compression)', fontsize=11)
+    axC.xaxis.set_ticks_position('top'); axC.xaxis.set_label_position('top')
+    axB.plot(tg, fsv, 'b-', lw=2, label='free surface velocity')
+    axB.set_xlabel('Time (μs)'); axB.set_ylabel('Free surface\nvelocity (m/s)')
+    axB.grid(True, alpha=0.3)
+    axB.set_xlim(0, times.max())
+    for lbl, t in guides:                            # vertical guides across both panels
+        axT.axvline(t, color='0.5', ls='--', lw=1.0, alpha=0.8)
+        axB.axvline(t, color='0.5', ls='--', lw=1.0, alpha=0.8)
+        axB.annotate(lbl, xy=(t, 1.0), xycoords=('data', 'axes fraction'),
+                     xytext=(2, -2), textcoords='offset points', fontsize=9,
+                     rotation=90, va='top', ha='left', color='0.35')
+    # collect all handles/labels (x-t panel + FSV) into the legend-only panel
+    hs, ls_ = axT.get_legend_handles_labels()
+    hb, lb = axB.get_legend_handles_labels()
+    axL.legend(hs + hb, ls_ + lb, loc='center', ncol=3, fontsize=12,
+               frameon=False, handlelength=2.5, columnspacing=1.8)
+    plt.show()
+
+########################################################################################################################
 
 # Automatically select the appropriate input file based on interface analysis setting
 if ENABLE_INTERFACE_ANALYSIS:
     # Use the new material database configuration
-    filein = './test17-spall-interface/test17-material-config.yml'
+    filein = os.path.join(_SCRIPT_DIR, 'test17-spall-interface', 'test17-material-config.yml')
     print("🔬 Using material database configuration WITH interface separation physics")
 else:
     # Fallback to original configuration without interface separation
-    filein = './test17-spall-interface/test17-without-interface-separation.yml'
+    filein = os.path.join(_SCRIPT_DIR, 'test17-spall-interface', 'test17-without-interface-separation.yml')
     print("🔧 Using configuration WITHOUT interface separation physics")
 
 print(f"📁 Input file: {filein}\n")
@@ -418,8 +783,12 @@ print()
 
 ########################################################################################################################
 
-# run pyko - use dtstart from YAML configuration (no hardcoded values)
-pyko.run(fin=filein, userdtstart=run.dtstart, verbose=True)
+# run pyko - let pyKO compute a stable CFL-limited initial time step
+# (min(dx/cs)/10). Do NOT force userdtstart=run.dtstart: the YAML dtstart
+# (1e-9 s) is ~50x larger than the stable step for this ~1 um mesh, which
+# makes the opening step blow up (impact face -> ~390 GPa, ~8600 m/s) and
+# drives runaway spall. See pyko.py makegrid initial-timestep guess.
+pyko.run(fin=filein, verbose=True)
 
 ########################################################################################################################
 
@@ -570,22 +939,14 @@ if ENABLE_SPALL_ANALYSIS:
     cu_spall_threshold_from_yaml = None
     spall_density_threshold = None
 
-    # Try from run object's fracture properties (Pa and dimensionless)
+    # Prefer thresholds from mandatory extraction (pfrac in code units Mbar → GPa via *100)
     try:
-        al_pfrac_pa = _get_attr(mat1_fracture, 'pfrac')
-        cu_pfrac_pa = _get_attr(mat2_fracture, 'pfrac')
-        nrhomin_val = _get_attr(mat2_fracture, 'nrhomin')
-
-        if al_pfrac_pa is not None:
-            al_spall_threshold_from_yaml = abs(float(al_pfrac_pa)) / 1e9  # to GPa
-        if cu_pfrac_pa is not None:
-            cu_spall_threshold_from_yaml = abs(float(cu_pfrac_pa)) / 1e9  # to GPa
-        if nrhomin_val is not None:
-            spall_density_threshold = float(nrhomin_val)
-    except Exception:
+        al_spall_threshold_from_yaml = mat1_spall_threshold_from_yaml
+        cu_spall_threshold_from_yaml = mat2_spall_threshold_from_yaml
+    except NameError:
         pass
 
-    # Fall back to YAML dict if present
+    # Fall back: YAML pfrac is in Pa → GPa
     try:
         if 'yaml_config' in globals() or 'yaml_config' in locals():
             cfg = yaml_config
@@ -595,6 +956,14 @@ if ENABLE_SPALL_ANALYSIS:
                 cu_spall_threshold_from_yaml = abs(float(cfg['mat2']['frac'].get('pfrac', 0.0))) / 1e9
             if spall_density_threshold is None:
                 spall_density_threshold = float(cfg['mat2']['frac'].get('nrhomin', 0.9))
+    except Exception:
+        pass
+
+    # nrhomin from fracture object if still missing
+    try:
+        nrhomin_val = _get_attr(mat2_fracture, 'nrhomin')
+        if spall_density_threshold is None and nrhomin_val is not None:
+            spall_density_threshold = float(nrhomin_val)
     except Exception:
         pass
 
@@ -613,7 +982,10 @@ if ENABLE_SPALL_ANALYSIS:
     
     # Use dual spall detection: density-based AND pressure-based
     print(f"Using density ratio threshold for spall detection: {spall_density_threshold:.3f} (from YAML nrhomin)")
-    print(f"Also checking pressure-based spall: Al > {al_spall_threshold_from_yaml:.3f} GPa, Cu > {cu_spall_threshold_from_yaml:.3f} GPa tensile")
+    print(
+        f"Also checking pressure-based spall: {mat1_name} > {al_spall_threshold_from_yaml:.3f} GPa, "
+        f"{mat2_name} > {cu_spall_threshold_from_yaml:.3f} GPa tensile"
+    )
     
     # Check if any tensile pressures exceed spall thresholds
     max_tensile_pressure = abs(pko['pres'].min()) if pko['pres'].min() < 0 else 0
@@ -667,25 +1039,26 @@ if ENABLE_SPALL_ANALYSIS:
         density_min = pko.density_ratio.min()
         density_max = pko.density_ratio.max()
         
-        print(f"Using actual data ranges - Pressure: [{pres_min:.2f}, {pres_max:.2f}] GPa, Density: [{density_min:.3f}, {density_max:.3f}]")
-        print(f"Pressure colormap: Red (tension) -> Gray (zero) -> Blue (compression)")
-        
-        # Create pressure normalization that centers at zero
-        pressure_norm = create_pressure_norm(pres_min, pres_max)
-        
-        # Pressure (Eulerian) - Custom colormap with zero-centered scaling
-        xt_pres_eul = ax1.scatter(pko.pos * 10, pko.time, c=pko.pres, cmap=pressure_cmap, 
+        print(f"Using actual data ranges - Stress: [{pres_min:.2f}, {pres_max:.2f}] GPa, Density: [{density_min:.3f}, {density_max:.3f}]")
+        print(f"Stress colormap: Red (tension) -> Gray (zero) -> Blue (compression)")
+
+        # Symmetric stress normalization: equal colormap range on both sides of zero
+        _stress_abs_max = max(abs(pres_min), abs(pres_max))
+        pressure_norm = colors.Normalize(vmin=-_stress_abs_max, vmax=_stress_abs_max)
+
+        # Stress (Eulerian) - Custom colormap with symmetric zero-centered scaling
+        xt_pres_eul = xt_pcolormesh(ax1, pko.pos, pko.pres, cmap=pressure_cmap,
                                  norm=pressure_norm)
         ax1.set_xlabel('Position (mm)')
         ax1.set_ylabel('Time (μs)')
-        ax1.set_title('Eulerian: Pressure (Data Range)')
+        ax1.set_title('Eulerian: Stress (GPa, symmetric)')
         ax1.grid(True, alpha=0.3, which='both')
         ax1.minorticks_on()
         ax1.grid(True, alpha=0.1, which='minor')
-        plt.colorbar(xt_pres_eul, ax=ax1, label='Pressure (GPa)')
+        plt.colorbar(xt_pres_eul, ax=ax1, label='Stress (GPa)')
         
         # Particle velocity (Eulerian) - Auto-scaled
-        xt_up_eul = ax2.scatter(pko.pos * 10, pko.time, c=pko.up, cmap='inferno')
+        xt_up_eul = xt_pcolormesh(ax2, pko.pos, pko.up, cmap='inferno')
         ax2.set_xlabel('Position (mm)')
         ax2.set_ylabel('Time (μs)')
         ax2.set_title('Eulerian: Particle Velocity')
@@ -695,7 +1068,7 @@ if ENABLE_SPALL_ANALYSIS:
         plt.colorbar(xt_up_eul, ax=ax2, label='Particle Velocity (m/s)')
         
         # Density ratio (Eulerian) - Actual data range
-        xt_rho_eul = ax3.scatter(pko.pos * 10, pko.time, c=pko.density_ratio, 
+        xt_rho_eul = xt_pcolormesh(ax3, pko.pos, pko.density_ratio,
                                 cmap='coolwarm', vmin=density_min, vmax=density_max)
         ax3.set_xlabel('Position (mm)')
         ax3.set_ylabel('Time (μs)')
@@ -706,7 +1079,7 @@ if ENABLE_SPALL_ANALYSIS:
         plt.colorbar(xt_rho_eul, ax=ax3, label=r'$\rho/\rho_0$')
         
         # Material ID (Eulerian) - Auto-scaled
-        xt_mat_eul = ax4.scatter(pko.pos * 10, pko.time, c=pko.mat, cmap='viridis', alpha=0.7)
+        xt_mat_eul = xt_pcolormesh(ax4, pko.pos, pko.mat, cmap='viridis', alpha=0.7)
         ax4.set_xlabel('Position (mm)')
         ax4.set_ylabel('Time (μs)')
         ax4.set_title('Eulerian: Material ID')
@@ -723,18 +1096,18 @@ if ENABLE_SPALL_ANALYSIS:
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12), dpi=300)
         
         # Pressure (Lagrangian) - Custom colormap with zero-centered scaling
-        xt_pres_lag = ax1.scatter(pko.pos0 * 10, pko.time, c=pko.pres, cmap=pressure_cmap, 
+        xt_pres_lag = xt_pcolormesh(ax1, pko.pos0, pko.pres, cmap=pressure_cmap,
                                  norm=pressure_norm)
         ax1.set_xlabel('Initial Position (mm)')
         ax1.set_ylabel('Time (μs)')
-        ax1.set_title('Lagrangian: Pressure (Data Range)')
+        ax1.set_title('Lagrangian: Stress (GPa, symmetric)')
         ax1.grid(True, alpha=0.3, which='both')
         ax1.minorticks_on()
         ax1.grid(True, alpha=0.1, which='minor')
-        plt.colorbar(xt_pres_lag, ax=ax1, label='Pressure (GPa)')
+        plt.colorbar(xt_pres_lag, ax=ax1, label='Stress (GPa)')
         
         # Particle velocity (Lagrangian) - Auto-scaled
-        xt_up_lag = ax2.scatter(pko.pos0 * 10, pko.time, c=pko.up, cmap='inferno')
+        xt_up_lag = xt_pcolormesh(ax2, pko.pos0, pko.up, cmap='inferno')
         ax2.set_xlabel('Initial Position (mm)')
         ax2.set_ylabel('Time (μs)')
         ax2.set_title('Lagrangian: Particle Velocity')
@@ -744,7 +1117,7 @@ if ENABLE_SPALL_ANALYSIS:
         plt.colorbar(xt_up_lag, ax=ax2, label='Particle Velocity (m/s)')
         
         # Density ratio (Lagrangian) - Actual data range
-        xt_rho_lag = ax3.scatter(pko.pos0 * 10, pko.time, c=pko.density_ratio, 
+        xt_rho_lag = xt_pcolormesh(ax3, pko.pos0, pko.density_ratio,
                                 cmap='coolwarm', vmin=density_min, vmax=density_max)
         ax3.set_xlabel('Initial Position (mm)')
         ax3.set_ylabel('Time (μs)')
@@ -755,7 +1128,7 @@ if ENABLE_SPALL_ANALYSIS:
         plt.colorbar(xt_rho_lag, ax=ax3, label=r'$\rho/\rho_0$')
         
         # Material ID (Lagrangian) - Auto-scaled
-        xt_mat_lag = ax4.scatter(pko.pos0 * 10, pko.time, c=pko.mat, cmap='viridis', alpha=0.7)
+        xt_mat_lag = xt_pcolormesh(ax4, pko.pos0, pko.mat, cmap='viridis', alpha=0.7)
         ax4.set_xlabel('Initial Position (mm)')
         ax4.set_ylabel('Time (μs)')
         ax4.set_title('Lagrangian: Material ID')
@@ -763,10 +1136,20 @@ if ENABLE_SPALL_ANALYSIS:
         ax4.minorticks_on()
         ax4.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_mat_lag, ax=ax4, label='Material ID')
-        
+
         plt.tight_layout()
         plt.show()
-    
+
+        # Second figure: high-resolution zoom onto the spall region
+        plot_spall_zoom(pko, pressure_cmap, pressure_norm, density_min, density_max)
+
+        # Rarefaction fans from each free surface, traced through pyKO's sound-speed
+        # field (method of characteristics); where they overlap -> spall.
+        plot_rarefaction_fans(pko, pressure_cmap, run)
+
+        # Stacked x-t diagram + free-surface velocity (related on a shared time axis)
+        plot_xt_fsv_stack(pko, pressure_cmap, run)
+
     else:
         print("❌ NO SPALL DETECTED in this simulation.")
         print(f"   Density-based: No regions with ρ/ρ₀ < {spall_density_threshold:.3f}")
@@ -780,29 +1163,30 @@ if ENABLE_SPALL_ANALYSIS:
         density_min = pko.density_ratio.min()
         density_max = pko.density_ratio.max()
         
-        print(f"Using actual data ranges - Pressure: [{pres_min:.2f}, {pres_max:.2f}] GPa, Density: [{density_min:.3f}, {density_max:.3f}]")
-        print(f"Pressure colormap: Red (tension) -> Gray (zero) -> Blue (compression)")
-        
-        # Create pressure normalization that centers at zero
-        pressure_norm = create_pressure_norm(pres_min, pres_max)
-        
+        print(f"Using actual data ranges - Stress: [{pres_min:.2f}, {pres_max:.2f}] GPa, Density: [{density_min:.3f}, {density_max:.3f}]")
+        print(f"Stress colormap: Red (tension) -> Gray (zero) -> Blue (compression)")
+
+        # Symmetric stress normalization: equal colormap range on both sides of zero
+        _stress_abs_max = max(abs(pres_min), abs(pres_max))
+        pressure_norm = colors.Normalize(vmin=-_stress_abs_max, vmax=_stress_abs_max)
+
         # EULERIAN X-T DIAGRAMS (no spall case)
         print("\nCreating comprehensive Eulerian x-t diagrams...")
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12), dpi=300)
         
         # Pressure (Eulerian) - Custom colormap with zero-centered scaling
-        xt_pres_eul = ax1.scatter(pko.pos * 10, pko.time, c=pko.pres, cmap=pressure_cmap, 
+        xt_pres_eul = xt_pcolormesh(ax1, pko.pos, pko.pres, cmap=pressure_cmap,
                                  norm=pressure_norm)
         ax1.set_xlabel('Position (mm)')
         ax1.set_ylabel('Time (μs)')
-        ax1.set_title('Eulerian: Pressure (Data Range)')
+        ax1.set_title('Eulerian: Stress (GPa, symmetric)')
         ax1.grid(True, alpha=0.3, which='both')
         ax1.minorticks_on()
         ax1.grid(True, alpha=0.1, which='minor')
-        plt.colorbar(xt_pres_eul, ax=ax1, label='Pressure (GPa)')
+        plt.colorbar(xt_pres_eul, ax=ax1, label='Stress (GPa)')
         
         # Particle velocity (Eulerian) - Auto-scaled
-        xt_up_eul = ax2.scatter(pko.pos * 10, pko.time, c=pko.up, cmap='inferno')
+        xt_up_eul = xt_pcolormesh(ax2, pko.pos, pko.up, cmap='inferno')
         ax2.set_xlabel('Position (mm)')
         ax2.set_ylabel('Time (μs)')
         ax2.set_title('Eulerian: Particle Velocity')
@@ -812,7 +1196,7 @@ if ENABLE_SPALL_ANALYSIS:
         plt.colorbar(xt_up_eul, ax=ax2, label='Particle Velocity (m/s)')
         
         # Density ratio (Eulerian) - Actual data range
-        xt_rho_eul = ax3.scatter(pko.pos * 10, pko.time, c=pko.density_ratio, 
+        xt_rho_eul = xt_pcolormesh(ax3, pko.pos, pko.density_ratio,
                                 cmap='coolwarm', vmin=density_min, vmax=density_max)
         ax3.set_xlabel('Position (mm)')
         ax3.set_ylabel('Time (μs)')
@@ -823,7 +1207,7 @@ if ENABLE_SPALL_ANALYSIS:
         plt.colorbar(xt_rho_eul, ax=ax3, label=r'$\rho/\rho_0$')
         
         # Material ID (Eulerian) - Auto-scaled
-        xt_mat_eul = ax4.scatter(pko.pos * 10, pko.time, c=pko.mat, cmap='viridis', alpha=0.7)
+        xt_mat_eul = xt_pcolormesh(ax4, pko.pos, pko.mat, cmap='viridis', alpha=0.7)
         ax4.set_xlabel('Position (mm)')
         ax4.set_ylabel('Time (μs)')
         ax4.set_title('Eulerian: Material ID')
@@ -840,18 +1224,18 @@ if ENABLE_SPALL_ANALYSIS:
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12), dpi=300)
         
         # Pressure (Lagrangian) - Custom colormap with zero-centered scaling
-        xt_pres_lag = ax1.scatter(pko.pos0 * 10, pko.time, c=pko.pres, cmap=pressure_cmap, 
+        xt_pres_lag = xt_pcolormesh(ax1, pko.pos0, pko.pres, cmap=pressure_cmap,
                                  norm=pressure_norm)
         ax1.set_xlabel('Initial Position (mm)')
         ax1.set_ylabel('Time (μs)')
-        ax1.set_title('Lagrangian: Pressure (Data Range)')
+        ax1.set_title('Lagrangian: Stress (GPa, symmetric)')
         ax1.grid(True, alpha=0.3, which='both')
         ax1.minorticks_on()
         ax1.grid(True, alpha=0.1, which='minor')
-        plt.colorbar(xt_pres_lag, ax=ax1, label='Pressure (GPa)')
+        plt.colorbar(xt_pres_lag, ax=ax1, label='Stress (GPa)')
         
         # Particle velocity (Lagrangian) - Auto-scaled
-        xt_up_lag = ax2.scatter(pko.pos0 * 10, pko.time, c=pko.up, cmap='inferno')
+        xt_up_lag = xt_pcolormesh(ax2, pko.pos0, pko.up, cmap='inferno')
         ax2.set_xlabel('Initial Position (mm)')
         ax2.set_ylabel('Time (μs)')
         ax2.set_title('Lagrangian: Particle Velocity')
@@ -861,7 +1245,7 @@ if ENABLE_SPALL_ANALYSIS:
         plt.colorbar(xt_up_lag, ax=ax2, label='Particle Velocity (m/s)')
         
         # Density ratio (Lagrangian) - Actual data range
-        xt_rho_lag = ax3.scatter(pko.pos0 * 10, pko.time, c=pko.density_ratio, 
+        xt_rho_lag = xt_pcolormesh(ax3, pko.pos0, pko.density_ratio,
                                 cmap='coolwarm', vmin=density_min, vmax=density_max)
         ax3.set_xlabel('Initial Position (mm)')
         ax3.set_ylabel('Time (μs)')
@@ -872,7 +1256,7 @@ if ENABLE_SPALL_ANALYSIS:
         plt.colorbar(xt_rho_lag, ax=ax3, label=r'$\rho/\rho_0$')
         
         # Material ID (Lagrangian) - Auto-scaled
-        xt_mat_lag = ax4.scatter(pko.pos0 * 10, pko.time, c=pko.mat, cmap='viridis', alpha=0.7)
+        xt_mat_lag = xt_pcolormesh(ax4, pko.pos0, pko.mat, cmap='viridis', alpha=0.7)
         ax4.set_xlabel('Initial Position (mm)')
         ax4.set_ylabel('Time (μs)')
         ax4.set_title('Lagrangian: Material ID')
@@ -880,9 +1264,16 @@ if ENABLE_SPALL_ANALYSIS:
         ax4.minorticks_on()
         ax4.grid(True, alpha=0.1, which='minor')
         plt.colorbar(xt_mat_lag, ax=ax4, label='Material ID')
-        
+
         plt.tight_layout()
         plt.show()
+
+        # Wave-front race: even without spall, show whether the flyer release
+        # overtook the shock before it reached the target free surface.
+        plot_rarefaction_fans(pko, pressure_cmap, run)
+
+        # Stacked x-t diagram + free-surface velocity (related on a shared time axis)
+        plot_xt_fsv_stack(pko, pressure_cmap, run)
 
 else:
     print("\n=== SPALL ANALYSIS DISABLED ===")
@@ -1004,26 +1395,25 @@ if ENABLE_FSV_ANALYSIS:
                 # Only calculate spall strength if there's significant pullback
                 if delta_u > 10:  # Threshold for significant pullback (10 m/s)
                     
-                    # Get material properties for spall strength calculation
-                    # Get Cu target properties from YAML using correct pyKO units
+                    # Get material properties for spall strength calculation (target = mat 2)
                     try:
                         rho0_cu_gcm3 = run.irhostart[1]  # g/cm³ (pyKO units)
                         rho0_cu_kgm3 = rho0_cu_gcm3 * 1000  # Convert to kg/m³
-                        print(f"Using Cu density from YAML: ρ₀ = {rho0_cu_kgm3:.0f} kg/m³ ({rho0_cu_gcm3:.3f} g/cm³)")
+                        print(f"Using {mat2_name} density from run: ρ₀ = {rho0_cu_kgm3:.0f} kg/m³ ({rho0_cu_gcm3:.3f} g/cm³)")
                     except (AttributeError, IndexError):
-                        raise RuntimeError("Cannot access Cu density from run.irhostart[1]")
+                        raise RuntimeError(f"Cannot access {mat2_name} density from run.irhostart[1]")
                     
                     # Get sound speed from EOS using correct pyKO units
                     try:
-                        mat2_eos = run.ieos[1]  # Cu target EOS (material index 1)
+                        mat2_eos = run.ieos[1]  # Target EOS (material index 1)
                         if hasattr(mat2_eos, 'c0'):
                             c0_cu_cmus = mat2_eos.c0  # cm/μs (pyKO units)
                             c0_cu_ms = c0_cu_cmus * 10000  # Convert to m/s
-                            print(f"Using c₀ from YAML: {c0_cu_ms:.0f} m/s ({c0_cu_cmus:.3f} cm/μs)")
+                            print(f"Using {mat2_name} c₀ from run: {c0_cu_ms:.0f} m/s ({c0_cu_cmus:.3f} cm/μs)")
                         else:
                             raise RuntimeError("Sound speed c0 not found in EOS object")
                     except Exception as e:
-                        raise RuntimeError(f"Error accessing Cu sound speed properties: {e}")
+                        raise RuntimeError(f"Error accessing {mat2_name} sound speed properties: {e}")
                     
                     # Calculate FSV-based spall strength using converted SI units
                     # Spall strength = 0.5 * ρ₀ * c₀ * Δu
@@ -1036,9 +1426,16 @@ if ENABLE_FSV_ANALYSIS:
                     print(f"   σ_spall = {spall_strength_pa:.0f} Pa = {spall_strength_gpa:.3f} GPa")
                     
                     # Compare with YAML spall threshold
+                    # cu_spall_threshold_from_yaml is set by the spall analysis block;
+                    # fall back to mat2_spall_threshold_from_yaml when spall analysis is disabled.
+                    if 'cu_spall_threshold_from_yaml' not in globals():
+                        try:
+                            cu_spall_threshold_from_yaml = mat2_spall_threshold_from_yaml
+                        except NameError:
+                            cu_spall_threshold_from_yaml = 0.276  # GPa conservative default
                     print(f"\n📊 COMPARISON WITH YAML THRESHOLD:")
                     print(f"   FSV-measured spall strength: {spall_strength_gpa:.3f} GPa")
-                    print(f"   YAML Cu spall threshold:     {cu_spall_threshold_from_yaml:.3f} GPa")
+                    print(f"   YAML {mat2_name} spall threshold:     {cu_spall_threshold_from_yaml:.3f} GPa")
                     
                     ratio = spall_strength_gpa / cu_spall_threshold_from_yaml
                     if abs(ratio - 1.0) < 0.3:  # Within 30%
@@ -1078,13 +1475,13 @@ else:
     fsv_measurement_available = False
 
 ########################################################################################################################
-# MAXIMUM STRESS ANALYSIS IN Cu TARGET
+# MAXIMUM STRESS ANALYSIS IN TARGET (MAT 2)
 ########################################################################################################################
 
 if ENABLE_STRESS_ANALYSIS:
-    print("\n=== MAXIMUM COMPRESSIVE & TENSILE STRESS IN Cu TARGET ANALYSIS ===")
+    print(f"\n=== MAXIMUM COMPRESSIVE & TENSILE STRESS IN {mat2_name} TARGET (MAT 2) ===")
 
-    # Track maximum compressive and tensile stresses in Cu target (material 2) over time
+    # Track maximum compressive and tensile stresses in target (material 2) over time
     max_compressive_stress = np.zeros_like(unique_times)
     max_tensile_stress = np.zeros_like(unique_times)
     max_comp_positions = np.zeros_like(unique_times)
@@ -1097,19 +1494,19 @@ if ENABLE_STRESS_ANALYSIS:
             print(f"Warning: No data at time {t:.6f} μs - skipping stress analysis")
             continue
             
-        # Filter for Cu target (material 2) only
-        cu_target = snapshot[snapshot['mat'] == 2]
+        # Filter for target (material 2) only
+        mat2_target = snapshot[snapshot['mat'] == 2]
         
-        if len(cu_target) > 0:
+        if len(mat2_target) > 0:
             # Use pressure for compressive/tensile analysis (positive = compression, negative = tension)
-            pressures = cu_target['pres']
+            pressures = mat2_target['pres']
             
             # Maximum compressive stress (maximum positive pressure)
             max_comp_pressure = pressures.max()
             max_compressive_stress[i] = max_comp_pressure
             if max_comp_pressure > 0:
                 max_comp_idx = pressures.idxmax()
-                max_comp_positions[i] = cu_target.loc[max_comp_idx, 'pos'] * 10  # Convert to mm
+                max_comp_positions[i] = mat2_target.loc[max_comp_idx, 'pos'] * 10  # Convert to mm
             else:
                 max_comp_positions[i] = 0
             
@@ -1118,7 +1515,7 @@ if ENABLE_STRESS_ANALYSIS:
             max_tensile_stress[i] = -min_pressure if min_pressure < 0 else 0
             if min_pressure < 0:
                 max_tens_idx = pressures.idxmin()
-                max_tens_positions[i] = cu_target.loc[max_tens_idx, 'pos'] * 10  # Convert to mm
+                max_tens_positions[i] = mat2_target.loc[max_tens_idx, 'pos'] * 10  # Convert to mm
             else:
                 max_tens_positions[i] = 0
         else:
@@ -1134,7 +1531,7 @@ if ENABLE_STRESS_ANALYSIS:
     ax1.plot(unique_times, max_compressive_stress, 'r-', linewidth=2)
     ax1.set_xlabel('Time (μs)')
     ax1.set_ylabel('Max Compressive Stress (GPa)')
-    ax1.set_title('Maximum Compressive Stress in Cu Target vs. Time')
+    ax1.set_title(f'Maximum Compressive Stress in {mat2_name} Target vs. Time')
     ax1.grid(True, alpha=0.3, which='both')
     ax1.minorticks_on()
     ax1.grid(True, alpha=0.1, which='minor')
@@ -1147,12 +1544,12 @@ if ENABLE_STRESS_ANALYSIS:
     ax2.plot(unique_times, max_tensile_stress, 'b-', linewidth=2)
     ax2.set_xlabel('Time (μs)')
     ax2.set_ylabel('Max Tensile Stress (GPa)')
-    ax2.set_title('Maximum Tensile Stress in Cu Target vs. Time')
+    ax2.set_title(f'Maximum Tensile Stress in {mat2_name} Target vs. Time')
     ax2.grid(True, alpha=0.3, which='both')
     ax2.minorticks_on()
     ax2.grid(True, alpha=0.1, which='minor')
 
-    # Add spall threshold line for Cu (only if interface separation is enabled)
+    # Add spall threshold line for mat2 target (only if interface separation is enabled)
     if ENABLE_INTERFACE_ANALYSIS:
         cu_spall_threshold = cu_spall_threshold_from_yaml
         ax2.axhline(y=cu_spall_threshold, color='red', linestyle='--', alpha=0.7)
@@ -1192,12 +1589,12 @@ if ENABLE_STRESS_ANALYSIS:
     plt.tight_layout()
     plt.show()
 
-    print(f"Maximum compressive stress in Cu target: {max_comp_value:.2f} GPa at {max_comp_time:.3f} μs")
-    print(f"Maximum tensile stress in Cu target: {max_tens_value:.2f} GPa at {max_tens_time:.3f} μs")
+    print(f"Maximum compressive stress in {mat2_name} target: {max_comp_value:.2f} GPa at {max_comp_time:.3f} μs")
+    print(f"Maximum tensile stress in {mat2_name} target: {max_tens_value:.2f} GPa at {max_tens_time:.3f} μs")
     if max_tens_value > cu_spall_threshold:
-        print(f"⚠️  TENSILE STRESS EXCEEDS Cu SPALL THRESHOLD ({cu_spall_threshold} GPa)!")
+        print(f"⚠️  TENSILE STRESS EXCEEDS {mat2_name} SPALL THRESHOLD ({cu_spall_threshold:.3f} GPa)!")
     else:
-        print(f"✅ Tensile stress remains below Cu spall threshold ({cu_spall_threshold} GPa)")
+        print(f"✅ Tensile stress remains below {mat2_name} spall threshold ({cu_spall_threshold:.3f} GPa)")
 
 else:
     print("\n=== STRESS ANALYSIS DISABLED ===")
@@ -1205,7 +1602,7 @@ else:
     max_comp_time = 0
     max_tens_value = 0
     max_tens_time = 0
-    # Get Cu spall threshold from configuration if interface analysis is enabled
+    # Get mat2 spall threshold from configuration if interface analysis is enabled
     if ENABLE_INTERFACE_ANALYSIS:
         cu_spall_threshold = cu_spall_threshold_from_yaml
     else:
@@ -1237,19 +1634,19 @@ if ENABLE_INTERFACE_ANALYSIS:
             interfaces.append(interface_info)
 
     if interfaces:
-        print(f"Al-Cu interface tracked over {len(interfaces)} time steps")
+        print(f"{mat1_name}-{mat2_name} interface tracked over {len(interfaces)} time steps")
         
         # Plot interface evolution
         plt.figure(figsize=(10, 6), dpi=300)
         
         for i, interface in enumerate(interfaces):
             for j, pos in enumerate(interface['interface_positions']):
-                if j == 0:  # Only one interface between Al and Cu
+                if j == 0:  # Primary material interface
                     plt.plot(interface['time'], pos, 'ro', markersize=3)
         
         plt.xlabel('Time (μs)')
         plt.ylabel('Interface Position (mm)')
-        plt.title('Al-Cu Interface Evolution')
+        plt.title(f'{mat1_name}-{mat2_name} Interface Evolution')
         plt.grid(True, alpha=0.3, which='both')
         plt.minorticks_on()
         plt.grid(True, alpha=0.1, which='minor')
@@ -1278,20 +1675,30 @@ print("HYBRID SPALL + INTERFACE SEPARATION TEST SUMMARY")
 print("="*60)
 print(f"Simulation time: 0 to {unique_times[-1]:.2f} μs")
 print(f"Total nodes: {len(pos0)}")
-print(f"Materials: Al flyer ({al_thickness_str}) -> Cu target ({cu_thickness_str})")
+try:
+    _sum_mat = f"{mat1_name} ({mat1_thickness_str}) -> {mat2_name} ({mat2_thickness_str})"
+except NameError:
+    _sum_mat = f"Impactor ({al_thickness_str}) -> Target ({cu_thickness_str})"
+print(f"Materials: {_sum_mat}")
 print(f"Maximum free surface velocity: {max_fsv:.2f} m/s at {max_fsv_time:.2f} μs")
-print(f"Maximum compressive stress in Cu: {max_comp_value:.2f} GPa at {max_comp_time:.3f} μs")
-print(f"Maximum tensile stress in Cu: {max_tens_value:.2f} GPa at {max_tens_time:.3f} μs")
+print(f"Maximum compressive stress in {mat2_name}: {max_comp_value:.2f} GPa at {max_comp_time:.3f} μs")
+print(f"Maximum tensile stress in {mat2_name}: {max_tens_value:.2f} GPa at {max_tens_time:.3f} μs")
 if max_tens_value > cu_spall_threshold:
-    print(f"⚠️  Tensile stress exceeds Cu spall threshold ({cu_spall_threshold} GPa)!")
+    print(f"⚠️  Tensile stress exceeds {mat2_name} spall threshold ({cu_spall_threshold:.3f} GPa)!")
 else:
-    print(f"✅ Tensile stress below Cu spall threshold ({cu_spall_threshold} GPa)")
+    print(f"✅ Tensile stress below {mat2_name} spall threshold ({cu_spall_threshold:.3f} GPa)")
 
 # Add FSV-based spall strength to summary
 if 'fsv_measurement_available' in locals() and fsv_measurement_available:
     print(f"🎯 FSV-measured spall strength: {fsv_spall_strength:.3f} GPa")
-    ratio = fsv_spall_strength / cu_spall_threshold
-    if abs(ratio - 1.0) < 0.3:
+    ratio = (
+        fsv_spall_strength / cu_spall_threshold
+        if cu_spall_threshold is not None and cu_spall_threshold > 1e-30
+        else float('nan')
+    )
+    if ratio != ratio:  # NaN
+        print("📏 FSV vs YAML threshold ratio: N/A (mat2 spall threshold unset or ~0)")
+    elif abs(ratio - 1.0) < 0.3:
         print(f"✅ FSV measurement agrees with YAML threshold (ratio: {ratio:.2f})")
     else:
         print(f"📏 FSV vs YAML threshold ratio: {ratio:.2f}")
@@ -1313,15 +1720,24 @@ if overall_spall_detected:
                 spall_by_material[mat_id] += 1
         
         for mat_id, count in spall_by_material.items():
-            material_names = {1: f'Al flyer ({al_thickness_str})', 2: f'Cu target ({cu_thickness_str})'}
+            try:
+                material_names = {
+                    1: f'{mat1_name} ({mat1_thickness_str})',
+                    2: f'{mat2_name} ({mat2_thickness_str})',
+                }
+            except NameError:
+                material_names = {
+                    1: f'Impactor ({al_thickness_str})',
+                    2: f'Target ({cu_thickness_str})',
+                }
             print(f"    - Material {mat_id} ({material_names.get(mat_id, 'Unknown')}): {count} spall events")
     
     if pressure_spall_detected:
         print(f"  Pressure-based spall: Max tensile stress {max_tensile_pressure:.2f} GPa exceeded thresholds")
         if max_tensile_pressure > al_spall_threshold_from_yaml:
-            print(f"    - Al threshold exceeded: {max_tensile_pressure:.2f} > {al_spall_threshold_from_yaml:.2f} GPa")
+            print(f"    - {mat1_name} threshold exceeded: {max_tensile_pressure:.2f} > {al_spall_threshold_from_yaml:.2f} GPa")
         if max_tensile_pressure > cu_spall_threshold_from_yaml:
-            print(f"    - Cu threshold exceeded: {max_tensile_pressure:.2f} > {cu_spall_threshold_from_yaml:.2f} GPa")
+            print(f"    - {mat2_name} threshold exceeded: {max_tensile_pressure:.2f} > {cu_spall_threshold_from_yaml:.2f} GPa")
 else:
     print("Spall detected: NO")
 

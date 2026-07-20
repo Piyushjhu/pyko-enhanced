@@ -11,10 +11,8 @@ Author: PyKO Enhanced
 Date: 2024
 """
 
-import yaml
 import os
-import shutil
-from typing import Dict, Any, Optional
+from typing import Any, Dict
 
 # ===============================================================================
 # STRENGTH MODEL DATABASE
@@ -265,6 +263,16 @@ def generate_material_yaml(material_name: str, material_id: int,
         pfrac = 1.0E20  # Effectively infinite (no spall)
         nrhomin = 0.8   # Allow some density reduction
     
+    # mat1 flyer speed is supplied only via top-level impact_velocity in generated YAML (no mat1.init.up0)
+    init_fields = {
+        'rho0': props['density'],
+        'p0': 0.0,
+        'e0': 0.0,
+        't0': 298.0,
+    }
+    if material_id != 1:
+        init_fields['up0'] = initial_velocity
+
     material_config = {
         f'mat{material_id}': {
             'mesh': {
@@ -272,13 +280,7 @@ def generate_material_yaml(material_name: str, material_id: int,
                 'xstart': xstart,
                 'length': thickness
             },
-            'init': {
-                'up0': initial_velocity,
-                'rho0': props['density'],
-                'p0': 0.0,
-                'e0': 0.0,
-                't0': 298.0
-            },
+            'init': init_fields,
             'eos': {
                 'name': f'{material_name} {"flyer" if material_id == 1 else "target"}',
                 'type': 'MGR',
@@ -466,7 +468,14 @@ def save_yaml_config(config: Dict[str, Any], filename: str):
                 f"    xstart: {float(mat['mesh']['xstart'])}",
                 f"    length: {float(mat['mesh']['length'])}",
                 f"  init:",
-                f"    up0: {float(mat['init']['up0'])}",
+            ])
+            if mat_id == 1:
+                yaml_content.append(
+                    "    # Flyer speed: pyKO reads top-level impact_velocity (see units.velocity)"
+                )
+            else:
+                yaml_content.append(f"    up0: {float(mat['init']['up0'])}")
+            yaml_content.extend([
                 f"    rho0: {float(mat['init']['rho0'])}",
                 f"    p0: {float(mat['init']['p0'])}",
                 f"    e0: {float(mat['init']['e0'])}",

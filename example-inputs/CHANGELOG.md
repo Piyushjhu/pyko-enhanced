@@ -1,5 +1,15 @@
 # CHANGELOG pyKO example inputs
 
+## 2026-07-20
+* Fixed a unit-conversion bug in Test 18a/18b (`pos` was scaled by 1e4 instead of 1e6 m→μm) that distorted position axes in FSV plots.
+* Added a `near_existing_fracture()` guard in `pyko.py` to stop runaway re-fracturing: once a zone spalls or an interface separates, neighboring zones within a radius are no longer re-fractured every time step.
+* Added optional top-level `impact_velocity` YAML key that sets the mat1 flyer speed directly, instead of requiring `mat1.init.up0`; `material_database.py` now generates configs using this key.
+* Test 18a: FSV plots are now aligned to shock-arrival time, with a zoomed view centered on arrival instead of a fixed time window.
+* Test 18b: impact velocity is now read from `thickness_sweep.constant_velocity` (previously `mat1.init.up0`), and the script errors clearly if it's missing; removed unused minimum-`tstop` check.
+* Test 18a/18b example configs (`test18.yml`, `test18b.yml`) switched target material from Brass/Aluminum to Copper and updated velocity/thickness sweep ranges.
+* `test17-spall-interface` scripts now resolve paths relative to the script location instead of a hard-coded absolute path, so they run from any working directory.
+* Added `pko-test17-xt-animation.py`, an x-t diagram animation script for Test 17.
+
 ## 2023-07-05
 * Added Test8 notebook for a lab experiment on ice and two tabular water EOS that were not generated with ANEOS: the 5PHASE EOS and AQUA EOS. 
   See those eos directories for how to convert a table into a format compatible with pyKO.

@@ -14,7 +14,7 @@
 ########################################################################################################################
 
 # Toggle switches for analysis modules (True = ON, False = OFF)
-ENABLE_INTERFACE_ANALYSIS = True  # Interface analysis disabled - not needed for velocity sweep
+ENABLE_INTERFACE_ANALYSIS = False  # Interface analysis not needed for velocity sweep
 ENABLE_FSV_ANALYSIS = True         # Set to True for velocity sweep FSV analysis
 ENABLE_STRESS_ANALYSIS = False     # Set to False to skip stress analysis (not needed for velocity sweep)
 ENABLE_SPALL_ANALYSIS = False      # Set to False to skip spall analysis (not needed for velocity sweep)
@@ -212,7 +212,7 @@ for i, velocity in enumerate(velocities):
         # - Output units: Same as input units (m/s)
         # So the output data should already be in m/s!
         
-        pko['pos'] = pko['pos'] * 1e4  # m to μm
+        pko['pos'] = pko['pos'] * 1e6  # m to μm
         pko['pres'] = pko['pres'] / 1e9  # Pa to GPa
         pko['time'] = pko['time'] * 1e6  # s to μs (microseconds)
         
@@ -269,8 +269,8 @@ for i, velocity in enumerate(velocities):
                 if len(fsv_array) <= debug_initial_fsv_count or velocity <= debug_velocity_limit:
                     print(f"    Debug: Rightmost {debug_rightmost_node_count} nodes:")
                     rightmost_5 = snapshot.nlargest(debug_rightmost_node_count, 'pos')
-                    for i, (idx, row) in enumerate(rightmost_5.iterrows()):
-                        print(f"      Node {i+1}: pos={row['pos']:.3f} μm, vel={row['up']:.3f} m/s, rho={row['rho']:.3f} kg/m³, mat={row['mat']}")
+                    for node_i, (idx, row) in enumerate(rightmost_5.iterrows()):
+                        print(f"      Node {node_i+1}: pos={row['pos']:.3f} μm, vel={row['up']:.3f} m/s, rho={row['rho']:.3f} kg/m³, mat={row['mat']}")
                 
                 fsv_array.append(fsv)
                 time_array.append(t)
@@ -355,55 +355,49 @@ print("="*80)
 if len(all_fsv_data) > 0:
     print("\n📊 Creating velocity sweep FSV plot...")
     
-    # Create figure for FSV vs Time plot
-    plt.figure(figsize=(12, 8))
-    
     # Color map for different velocities
     colors_list = plt.cm.viridis(np.linspace(0, 1, len(all_fsv_data)))
-    
-    # Plot FSV curves for each velocity
+
+    rise_threshold = 5.0  # m/s — FSV above this means shock has arrived
+    pre_window = 0.01     # μs of negative time before shock arrival (10 ns)
+
+    def get_t0(data):
+        times = np.array(data['times'])
+        fsv = np.array(data['fsv'])
+        rising = times[fsv > rise_threshold]
+        return rising[0] if len(rising) > 0 else 0.0
+
+    # Full FSV vs Time plot (shock-arrival aligned)
+    plt.figure(figsize=(12, 8))
     for i, (velocity, data) in enumerate(all_fsv_data.items()):
-        plt.plot(data['times'], data['fsv'], 
-                color=colors_list[i], 
-                linewidth=2, 
-                label=f'{velocity:.0f} m/s',
-                alpha=0.8)
-    
-    # Add proper labels and title
-    plt.xlabel('Time (μs)', fontsize=12)
+        t0 = get_t0(data)
+        plt.plot(np.array(data['times']) - t0, data['fsv'],
+                color=colors_list[i], linewidth=2,
+                label=f'{velocity:.0f} m/s', alpha=0.8)
+    plt.xlabel('Time relative to shock arrival (μs)', fontsize=12)
     plt.ylabel('Free Surface Velocity (m/s)', fontsize=12)
     plt.title('Free Surface Velocity vs Time for Different Impact Velocities', fontsize=14, fontweight='bold')
     plt.legend(title='Impact Velocity', fontsize=10)
-    plt.grid(True, alpha=0.3)  # Grid transparency
+    plt.grid(True, alpha=0.3)
+    plt.xlim(-pre_window, None)
     plt.tight_layout()
-    
-    # Save the first plot
     plt.savefig('./test18_a_multivelocity/fsv_vs_time.png', dpi=300, bbox_inches='tight')
     plt.show()
-    
-    # Create zoomed figure for FSV vs Time (0.2 to 0.3 μs)
+
+    # Zoomed plot: -10 ns to +100 ns around shock arrival
     plt.figure(figsize=(12, 8))
-    
-    # Plot FSV curves for each velocity (same as before)
     for i, (velocity, data) in enumerate(all_fsv_data.items()):
-        plt.plot(data['times'], data['fsv'], 
-                color=colors_list[i], 
-                linewidth=2, 
-                label=f'{velocity:.0f} m/s',
-                alpha=0.8)
-    
-    # Set x-axis limits to zoom in on 0.2 to 0.3 microseconds
-    plt.xlim(0.2, 0.3)
-    
-    # Add proper labels and title
-    plt.xlabel('Time (μs)', fontsize=12)
+        t0 = get_t0(data)
+        plt.plot(np.array(data['times']) - t0, data['fsv'],
+                color=colors_list[i], linewidth=2,
+                label=f'{velocity:.0f} m/s', alpha=0.8)
+    plt.xlim(-0.01, 0.10)  # -10 ns to +100 ns in μs
+    plt.xlabel('Time relative to shock arrival (μs)', fontsize=12)
     plt.ylabel('Free Surface Velocity (m/s)', fontsize=12)
-    plt.title('Free Surface Velocity vs Time (Zoomed: 0.2-0.3 μs)', fontsize=14, fontweight='bold')
+    plt.title('Free Surface Velocity vs Time — Shock Arrival Detail (-10 to +100 ns)', fontsize=13, fontweight='bold')
     plt.legend(title='Impact Velocity', fontsize=10)
-    plt.grid(True, alpha=0.3)  # Grid transparency
+    plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    
-    # Save the zoomed plot
     plt.savefig('./test18_a_multivelocity/fsv_vs_time_zoomed.png', dpi=300, bbox_inches='tight')
     plt.show()
     

@@ -1,5 +1,6 @@
 # Ignore large binary output files
 *.dat
 __pycache__/
+.venv/
 .DS_Store
 *.pyc

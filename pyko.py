@@ -2179,6 +2179,12 @@ class DomainClass:
                 if (self.pres[3, idx-1] < 0) and (self.pres[3, idx+1] < 0):
                     imat = int(self.matid[idx-1])
                     isurf = idx-1
+                    # guard against runaway: only separate an interface once.
+                    # If a fracture boundary/void already sits at this interface
+                    # it has already opened; leave the gap open rather than
+                    # creating a new fracture every time step it is in tension.
+                    if self.near_existing_fracture(isurf, radius=2):
+                        continue
                     nextibc = max(self.ibc)+1
                     self.createinteriorfracture(run,imat,isurf,nextibc)
                     
@@ -2196,27 +2202,18 @@ class DomainClass:
                 if len(ispall) > 0:
                     #print('ispall = ',self.ibc[ioddimat[ispall]])
                     for icheck in ispall:
-                        jend = max(np.where(self.matid == imat)[0]) 
+                        jend = max(np.where(self.matid == imat)[0])
                         #print('icheck,jend=',ioddimat[icheck],jend)
-                        if (ioddimat[icheck] < jend-1) & (self.temp[n+2,ioddimat[icheck]] < 2200.):
+                        # guard against runaway fracture: skip if this zone is
+                        # already at/next to an existing fracture boundary. Once
+                        # a zone spalls the new free surface holds the neighbors
+                        # in tension, so without this the same site re-fractures
+                        # every step and the mesh grows without bound.
+                        if (ioddimat[icheck] < jend-1) & (self.temp[n+2,ioddimat[icheck]] < 2200.) \
+                           & (not self.near_existing_fracture(ioddimat[icheck], radius=4)):
                             nextibc = max(self.ibc)+1
                             print('SPALL imat, ioddimat[icheck], nextibc = ',imat, ioddimat[icheck], nextibc)
                             self.createinteriorfracture(run,imat,ioddimat[icheck],nextibc)
-                        if False:
-                            # check if right next to an existing fracture -- don't do this; need more sensible way to prevent runaway fracture in more extreme events
-                            lookindex = np.append(ioddimat[icheck],[np.min(ioddimat[icheck])-4,np.min(ioddimat[icheck])-4,np.min(ioddimat[icheck])-2,np.max(ioddimat[icheck])+2, np.max(ioddimat[icheck])+4, np.max(ioddimat[icheck])+4])
-                            tmp = np.where(self.ibc[lookindex] != 0)[0]
-                            if (len(tmp)==0):
-                                imax = icheck
-                                #print('SPALL imat, ioddimat[ispall], imax = ',imat, ioddimat[ispall], ioddimat[imax])
-                                #for nspall in range(len(ispall)):
-                                nextibc = max(self.ibc)+1
-                                #self.binarydebugoutputpint(run)
-                                self.createinteriorfracture(run,imat,ioddimat[imax],nextibc)
-                                #print('created a fracture')
-                                #self.stepn = self.stepn+1
-                                #self.binarydebugoutputpint(run)
-                                #sys.exit("stop and check debug files")
         # ------------ update time step ---------------------
         # if a fracture formed then the ioddj index is wrong
         # recalculate just in case
@@ -2609,6 +2606,17 @@ class DomainClass:
                         print('Contact! reduce the time step and remove the extra nodes ',self.time[1],self.deltat,dtgap)
         #print('')
         return
+    def near_existing_fracture(self,jend,radius=4):
+        """Return True if an interior boundary, void, or surface (ibc != 0)
+        already exists within +/- radius index positions of jend.
+        Used to prevent runaway re-fracturing of the same location (and its
+        immediate neighbors) on successive time steps: once a zone has spalled
+        or an interface has separated, the resulting boundary/void keeps that
+        neighborhood in tension, so without this guard the same site fractures
+        every step and the mesh grows without bound."""
+        lo = max(0, jend - radius)
+        hi = min(len(self.ibc), jend + radius + 1)
+        return bool(np.any(self.ibc[lo:hi] != 0))
     def createinteriorfracture(self,run,imat,ispall,ninteriorbc):
         #jend = max(np.where(self.matid == imat)[0])
         jend = ispall
@@ -3189,8 +3197,25 @@ def readinput_yaml(run,verbose=False):
         # p0
         p0 = Q_(np.asarray(config[matlist[imat]]['init']['p0'],dtype='float'),config['units']['pressure'])
         run.ipstart    = np.append(run.ipstart,p0.to(config['codeunits']['pressure']).magnitude)
-        # up0
-        up0 = Q_(np.asarray(config[matlist[imat]]['init']['up0'],dtype='float'),config['units']['velocity'])
+        # up0 — optional top-level impact_velocity (m/s in units['velocity']) sets mat1 flyer speed
+        init_block = config[matlist[imat]]['init']
+        use_impact_v = (
+            imat == 0
+            and matlist[imat] == 'mat1'
+            and config.get('impact_velocity') is not None
+        )
+        if use_impact_v:
+            up0 = Q_(float(config['impact_velocity']), config['units']['velocity'])
+            if verbose and 'up0' in init_block:
+                u_yaml = float(init_block['up0'])
+                iv = float(config['impact_velocity'])
+                if u_yaml != iv:
+                    print(
+                        f'NOTE: mat1 init up0 ({u_yaml}) ignored; '
+                        f'using impact_velocity = {iv} {config["units"]["velocity"]}'
+                    )
+        else:
+            up0 = Q_(np.asarray(init_block['up0'], dtype='float'), config['units']['velocity'])
         run.iupstart   = np.append(run.iupstart,up0.to(config['codeunits']['velocity']).magnitude)
         # rho0
         rho0 = Q_(np.asarray(config[matlist[imat]]['init']['rho0'],dtype='float'),config['units']['density'])

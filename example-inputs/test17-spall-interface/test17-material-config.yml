@@ -6,7 +6,7 @@
 # - Test Name: Test17 Aluminum-Copper Single Velocity
 # - Impactor: Aluminum flyer
 # - Target: Copper target
-# - Impact Velocity: 1000.0 m/s
+# - Impact Velocity: 820.0 m/s
 # - Physics: Interface separation (spall) enabled
 #
 # ==============================================================================
@@ -16,15 +16,15 @@
 name: Test17 Aluminum-Copper Single Velocity  # Test name for identification
 outputfilename: ./pyko-test17-aluminum-copper-single-velocity-bin.dat  # Binary output file path
 outputformat: BIN  # Output format (BIN = binary)
-impact_velocity: 800.0  # Impact velocity (m/s)
+impact_velocity: 500.0  # Impact velocity (m/s)
 
 # ==============================================================================
 # TIMING PARAMETERS
 # ==============================================================================
 # These control the simulation duration and output frequency
-tstop: 4.0e-06  # Total simulation time (seconds)
-dtstart: 1.0e-10  # Initial time step (seconds)
-dtoutput: 1.0e-09  # Output frequency (seconds)
+tstop: 5e-07  # Total simulation time (seconds)
+dtstart: 1e-9  # Initial time step (seconds)
+dtoutput: 2e-10  # Output frequency (seconds); 5x denser in time for higher x-t plot resolution
 
 # ==============================================================================
 # MATERIAL 1: IMPACTOR
@@ -32,10 +32,10 @@ dtoutput: 1.0e-09  # Output frequency (seconds)
 mat1:
   mesh:
     cells: 100
-    xstart: -0.005
-    length: 0.005
+    xstart: -0.0001
+    length: 0.0001
   init:
-    up0: 1000.0
+    # Flyer speed: pyKO reads top-level impact_velocity (see units.velocity)
     rho0: 2700.0
     p0: 0.0
     e0: 0.0
@@ -53,7 +53,7 @@ mat1:
     gmod: 26000000000.0
     ys: 207000000.0
   frac:
-    pfrac: 276000000.0
+    pfrac: 176000000.0
     nrhomin: 1.0
 
 # ==============================================================================
@@ -63,7 +63,7 @@ mat2:
   mesh:
     cells: 200
     xstart: 0.0
-    length: 0.01
+    length: 0.0002
   init:
     up0: 0.0
     rho0: 8930.0
@@ -83,7 +83,7 @@ mat2:
     gmod: 46000000000.0
     ys: 95600000.0
   frac:
-    pfrac: 1500000000.0
+    pfrac: 2500000000.0
     nrhomin: 1.0
 
 # ==============================================================================

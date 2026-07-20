@@ -60,6 +60,7 @@ Example input files and scripts live in **`example-inputs/`**. Tabular EOS model
 ```
 example-inputs/
 ├── pko-test17-spall-interface.py      # Test 17: single impact, spall + interface
+├── pko-test17-xt-animation.py         # Test 17: x-t diagram animation
 ├── pko-test18_a_multivelocity.py      # Test 18a: velocity sweep
 ├── pko-test18_b_multithickness.py     # Test 18b: thickness sweep
 ├── test17-spall-interface/            # Config and material files for Test 17
@@ -182,6 +183,7 @@ Then run `pko-test18_b_multithickness.py` from `example-inputs/`.
 - **Mesh:** For shock/spall, ~1–5 μm per cell is typical; finer for spall, coarser for speed.
 - **Spall (Test 17):** In the YAML, set `frac.pfrac` (e.g. Al ~2–5×10⁸ Pa, Cu ~8–12×10⁸ Pa) and `frac.nrhomin` (e.g. 0.9).
 - **Paths:** Run the main scripts from **`example-inputs/`** so paths to config and output directories are correct.
+- **Impact velocity:** A top-level `impact_velocity` key in the YAML sets the mat1 flyer speed directly (preferred over `mat1.init.up0`). `material_database.py` generates configs using this key. Test 18b reads its sweep velocity from `thickness_sweep.constant_velocity` instead.
 
 ---
 

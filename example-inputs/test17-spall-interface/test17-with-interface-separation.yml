@@ -108,7 +108,7 @@ mat1:
         xstart : -0.0001
         length :  0.0001    # 100 μm = 0.0001 m
     init:
-        up0    : 300.0  # Impact velocity
+        up0    : 820.0  # Impact velocity
         rho0   : 2700.0
         p0     : 0.0
         e0     : 0.0
@@ -134,9 +134,9 @@ mat1:
 # Material 2: Copper target (with spall capability)
 mat2:
     mesh:
-        cells  : 200
+        cells  : 1000
         xstart : 0.0
-        length : 0.0002
+        length : 0.001
     init:
         up0    : 0.0
         rho0   : 8930.0

@@ -15,6 +15,7 @@ Key Features:
 
 Author: pyKO Development Team
 Date: 2024
+
 """
 # %%
 import os
@@ -61,8 +62,12 @@ thickness_steps = int(thickness_sweep.get('thickness_steps', 5))
 # Calculate thickness values
 thicknesses = np.linspace(min_thickness, max_thickness, thickness_steps) / 1e6  # Convert to meters
 
-# Get constant impact velocity
-constant_velocity = float(config['mat1']['init']['up0'])
+# Get constant impact velocity from thickness_sweep block — required field
+if 'constant_velocity' not in thickness_sweep or thickness_sweep['constant_velocity'] is None:
+    raise ValueError(
+        "Please check velocity field: 'constant_velocity' must be set under 'thickness_sweep' in the YAML config."
+    )
+constant_velocity = float(thickness_sweep['constant_velocity'])
 
 print("=== THICKNESS SWEEP PARAMETERS ===")
 print(f"Constant impact velocity: {constant_velocity:.0f} m/s")
@@ -83,6 +88,7 @@ print("="*80)
 all_fsv_data = {}
 all_peak_fsv = []
 all_peak_times = []
+error_log = []  # collect per-simulation errors; printed after the loop
 
 print(f"Starting thickness sweep analysis...")
 print(f"Will simulate {len(thicknesses)} different target thicknesses")
@@ -98,24 +104,16 @@ for i, thickness in enumerate(thicknesses):
     # Update the target thickness
     current_config['mat2']['mesh']['length'] = float(thickness)
     current_config['mat2']['mesh']['cells'] = int(thickness * 1e6)  # 1 cell per μm
+
+    # Apply the sweep velocity (overrides mat1.init.up0 from YAML)
+    current_config['mat1']['init']['up0'] = float(constant_velocity)
     
     # Ensure timing parameters are floats
     current_config['tstop'] = float(current_config['tstop'])
     current_config['dtstart'] = float(current_config['dtstart'])
     current_config['dtoutput'] = float(current_config['dtoutput'])
-    
-    # Check if timing is sufficient for this thickness
+
     tstop = current_config['tstop']
-    
-    # Get minimum timing from YAML or use default, ensure it's a float
-    min_tstop = float(current_config.get('min_tstop', 0.1e-06))  # Default 0.1 μs if not specified
-    
-    if tstop < min_tstop:
-        print(f"\n❌ ERROR: Simulation time too short for thickness {thickness*1e6:.0f} μm!")
-        print(f"   Current tstop: {tstop*1e6:.3f} μs")
-        print(f"   Minimum required: {min_tstop*1e6:.3f} μs")
-        print(f"   Please increase tstop in YAML file to at least {min_tstop*1e6:.3f} μs")
-        continue
     
     print(f"\n🔄 Simulating thickness {i+1}/{len(thicknesses)}: {thickness*1e6:.0f} μm")
     print(f"    Timing: tstop={tstop*1e6:.3f} μs, dtoutput={current_config['dtoutput']*1e9:.1f} ns")
@@ -204,7 +202,7 @@ for i, thickness in enumerate(thicknesses):
         # - Output units: Same as input units (m/s)
         # So the output data should already be in m/s!
         
-        pko['pos'] = pko['pos'] * 1e4  # m to μm
+        pko['pos'] = pko['pos'] * 1e6  # m to μm
         pko['pres'] = pko['pres'] / 1e9  # Pa to GPa
         pko['time'] = pko['time'] * 1e6  # s to μs (microseconds)
         
@@ -223,8 +221,6 @@ for i, thickness in enumerate(thicknesses):
         print(f"    Debug: Time range: {pko['time'].min():.3e} to {pko['time'].max():.3e} μs")
         print(f"    Debug: Found {len(pko_list)} unique time steps")
         
-        # Convert position to μm for easier analysis
-        pko['pos'] = pko['pos'] * 1e6  # Convert to μm
         print(f"    Debug: Position range: {pko['pos'].min():.3f} to {pko['pos'].max():.3f} μm")
         print(f"    Debug: Velocity range: {pko['up'].min():.3f} to {pko['up'].max():.3f} m/s")
         print(f"    Debug: Target thickness: {target_thickness*1e6:.0f} μm")
@@ -308,13 +304,21 @@ for i, thickness in enumerate(thicknesses):
         os.remove(temp_yaml_file)
         
     except Exception as e:
-        print(f"  ❌ Error simulating thickness {thickness*1e6:.0f} μm: {str(e)}")
-        print(f"  🔍 Error type: {type(e).__name__}")
-        print(f"  🔍 Full error details: {str(e)}")
+        import traceback
+        error_log.append((f"{thickness*1e6:.0f}μm", type(e).__name__, str(e), traceback.format_exc()))
+        print(f"  ❌ Failed {thickness*1e6:.0f} μm ({type(e).__name__}): {str(e)[:120]}")
         continue
 
 print(f"\n✅ Thickness sweep completed!")
 print(f"Successfully simulated {len(all_fsv_data)} thicknesses")
+if error_log:
+    print(f"\n{'='*60}")
+    print(f"ERRORS ({len(error_log)} simulation(s) failed):")
+    print(f"{'='*60}")
+    for label, etype, emsg, etrace in error_log:
+        print(f"\n  [{label}] {etype}: {emsg}")
+        print(etrace)
+    print(f"{'='*60}")
 print("="*80)
 
 ########################################################################################################################
@@ -336,14 +340,23 @@ if len(all_fsv_data) > 0:
     ax1.set_ylabel('Free Surface Velocity (m/s)', fontsize=12)
     ax1.grid(True, alpha=0.3)
     
+    rise_threshold = 5.0  # m/s — velocity above which shock is considered arrived
+    pre_window = 0.01  # μs of negative time shown before shock arrival (10 ns)
+
     for i, (thickness_key, fsv_df) in enumerate(all_fsv_data.items()):
         thickness_value = float(thickness_key.replace('μm', ''))
-        ax1.plot(fsv_df['time'], fsv_df['fsv'], 
-                color=colors[i], linewidth=2, 
+        rising = fsv_df[fsv_df['fsv'] > rise_threshold]
+        t0 = rising['time'].iloc[0] if len(rising) > 0 else 0.0
+        ax1.plot(fsv_df['time'] - t0, fsv_df['fsv'],
+                color=colors[i], linewidth=2,
                 label=f'{thickness_value:.0f} μm Target')
-    
+
     ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax1.set_xlim(0, max([df['time'].max() for df in all_fsv_data.values()]))
+    ax1.set_xlabel('Time relative to shock arrival (μs)', fontsize=12)
+    ax1.set_xlim(-pre_window, max(
+        [(df['time'] - (df.loc[df['fsv'] > rise_threshold, 'time'].iloc[0]
+                        if (df['fsv'] > rise_threshold).any() else 0)).max()
+         for df in all_fsv_data.values()]))
     
     # Plot 2: Peak FSV vs Target Thickness
     thickness_values = [float(key.replace('μm', '')) for key in all_fsv_data.keys()]
@@ -393,16 +406,41 @@ if len(all_fsv_data) > 0:
     
     for i, (thickness_key, fsv_df) in enumerate(all_fsv_data.items()):
         thickness_value = float(thickness_key.replace('μm', ''))
-        plt.plot(fsv_df['time'], fsv_df['fsv'], 
-                color=colors[i], linewidth=2, 
+        rising = fsv_df[fsv_df['fsv'] > rise_threshold]
+        t0 = rising['time'].iloc[0] if len(rising) > 0 else 0.0
+        plt.plot(fsv_df['time'] - t0, fsv_df['fsv'],
+                color=colors[i], linewidth=2,
                 label=f'{thickness_value:.0f} μm Target')
-    
+
+    plt.xlabel('Time relative to shock arrival (μs)', fontsize=12)
     plt.legend()
-    plt.xlim(0, max([df['time'].max() for df in all_fsv_data.values()]))
+    plt.xlim(-pre_window, max(
+        [(df['time'] - (df.loc[df['fsv'] > rise_threshold, 'time'].iloc[0]
+                        if (df['fsv'] > rise_threshold).any() else 0)).max()
+         for df in all_fsv_data.values()]))
     plt.tight_layout()
     plt.savefig('./test18_b_multithickness/fsv_vs_time.png', dpi=300, bbox_inches='tight')
     print(f"✅ Saved FSV vs Time plot: fsv_vs_time.png")
-    
+
+    # Zoomed plot: -10 ns to +100 ns around shock arrival
+    plt.figure(figsize=(10, 6))
+    plt.title('Free Surface Velocity vs Time — Shock Arrival Detail (-10 to +100 ns)', fontsize=13, fontweight='bold')
+    plt.xlabel('Time relative to shock arrival (μs)', fontsize=12)
+    plt.ylabel('Free Surface Velocity (m/s)', fontsize=12)
+    plt.grid(True, alpha=0.3)
+    for i, (thickness_key, fsv_df) in enumerate(all_fsv_data.items()):
+        thickness_value = float(thickness_key.replace('μm', ''))
+        rising = fsv_df[fsv_df['fsv'] > rise_threshold]
+        t0 = rising['time'].iloc[0] if len(rising) > 0 else 0.0
+        plt.plot(fsv_df['time'] - t0, fsv_df['fsv'],
+                color=colors[i], linewidth=2,
+                label=f'{thickness_value:.0f} μm Target')
+    plt.xlim(-0.01, 0.06)  # -10 ns to +100 ns in μs
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('./test18_b_multithickness/fsv_vs_time_zoomed.png', dpi=300, bbox_inches='tight')
+    print(f"✅ Saved zoomed FSV plot: fsv_vs_time_zoomed.png")
+
     # Plot 2: Peak FSV vs Thickness
     plt.figure(figsize=(10, 6))
     plt.title('Peak Free Surface Velocity vs Target Thickness', fontsize=14, fontweight='bold')
