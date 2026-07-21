@@ -22,7 +22,7 @@ impact_velocity: 500.0  # Impact velocity (m/s)
 # TIMING PARAMETERS
 # ==============================================================================
 # These control the simulation duration and output frequency
-tstop: 5e-07  # Total simulation time (seconds)
+tstop: 1e-07  # Total simulation time (seconds)
 dtstart: 1e-9  # Initial time step (seconds)
 dtoutput: 2e-10  # Output frequency (seconds); 5x denser in time for higher x-t plot resolution
 

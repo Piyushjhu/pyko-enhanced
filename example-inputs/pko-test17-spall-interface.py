@@ -71,12 +71,51 @@ def create_pressure_colormap():
     pressure_cmap = LinearSegmentedColormap.from_list('pressure', colors_list, N=256)
     return pressure_cmap
 
-def create_pressure_norm(pres_min, pres_max):
+class AsinhTwoSlopeNorm(colors.Normalize):
+    """Diverging norm: vmin -> 0.0, vcenter -> 0.5, vmax -> 1.0 in colormap space,
+    with an independent asinh (soft-log) stretch on each side of vcenter.
+
+    A plain TwoSlopeNorm is linear on each side, so if the compression range is
+    much larger than the tension range, low-magnitude stress on both sides still
+    renders near-white. Compressing each side with its own asinh scale spreads
+    low-magnitude values across more of the colormap while keeping the *data*
+    range asymmetric (vmin/vmax need not be mirror images of each other) and
+    zero pinned exactly to the colormap's white stop.
     """
-    Create a TwoSlopeNorm that centers the colormap at zero pressure
+    def __init__(self, vmin, vmax, vcenter=0.0, linear_width_frac=0.05, clip=False):
+        super().__init__(vmin=vmin, vmax=vmax, clip=clip)
+        self.vcenter = vcenter
+        self._lw_neg = linear_width_frac * abs(vcenter - vmin)
+        self._lw_pos = linear_width_frac * abs(vmax - vcenter)
+
+    def __call__(self, value, clip=None):
+        result, is_scalar = self.process_value(value)
+        vmin, vmax, vcenter = self.vmin, self.vmax, self.vcenter
+        out = np.empty(result.shape, dtype=float)
+
+        neg = result <= vcenter
+        pos = ~neg
+        if np.any(neg):
+            frac = (np.arcsinh((result[neg] - vcenter) / self._lw_neg)
+                    / np.arcsinh((vmin - vcenter) / self._lw_neg))
+            out[neg] = 0.5 - 0.5 * frac
+        if np.any(pos):
+            frac = (np.arcsinh((result[pos] - vcenter) / self._lw_pos)
+                    / np.arcsinh((vmax - vcenter) / self._lw_pos))
+            out[pos] = 0.5 + 0.5 * frac
+
+        out = np.ma.array(out, mask=np.ma.getmask(result))
+        return out[0] if is_scalar else out
+
+
+def create_pressure_norm(pres_min, pres_max, linear_width_frac=0.05):
     """
-    from matplotlib.colors import TwoSlopeNorm
-    return TwoSlopeNorm(vmin=pres_min, vcenter=0.0, vmax=pres_max)
+    Create an asymmetric, zero-centered norm for the pressure colormap: the
+    data range follows the actual (possibly asymmetric) compression/tension
+    extremes, while the asinh stretch keeps low-stress contours visible.
+    """
+    return AsinhTwoSlopeNorm(vmin=pres_min, vmax=pres_max, vcenter=0.0,
+                              linear_width_frac=linear_width_frac)
 
 # Create the custom pressure colormap
 pressure_cmap = create_pressure_colormap()
@@ -327,10 +366,13 @@ def _compute_xt_fans(pko, run=None):
                 h_ff=h_ff, h_tf=h_tf, analytic=analytic, amax=amax)
 
 
-def _draw_xt_fans(ax, d, pressure_cmap, transpose=False, legend=True, fs=7, legend_loc='upper left', norm=None):
+def _draw_xt_fans(ax, d, pressure_cmap, transpose=False, legend=True, fs=7, legend_loc='upper left',
+                   norm=None, show_lines=True):
     """Draw the x-t rarefaction-fan diagram (data from _compute_xt_fans) onto ax.
     If transpose, the axes are swapped so time is horizontal and initial position
-    is vertical (used for stacking above a free-surface-velocity trace)."""
+    is vertical (used for stacking above a free-surface-velocity trace).
+    If show_lines is False, only the pcolormesh stress field is drawn -- none of
+    the sim-traced/analytic wave-tracking overlay lines or reference markers."""
     from matplotlib.colors import AsinhNorm
     h, times, P = d['h'], d['times'], d['P']; analytic = d['analytic']
     if norm is None:
@@ -339,27 +381,28 @@ def _draw_xt_fans(ax, d, pressure_cmap, transpose=False, legend=True, fs=7, lege
         qm = ax.pcolormesh(times, h, P.T, cmap=pressure_cmap, norm=norm, shading='nearest')
     else:
         qm = ax.pcolormesh(h, times, P, cmap=pressure_cmap, norm=norm, shading='nearest')
-    def L(pos, tim):                 # (x, y) with the chosen orientation
-        return (tim, pos) if transpose else (pos, tim)
-    def posline(val, **kw):          # a constant-position reference line
-        (ax.axhline if transpose else ax.axvline)(val, **kw)
-    ax.plot(*L(*d['fan_fh']), color='#0044ff', lw=2.0, label='flyer rarefaction: head (sim)')
-    ax.plot(*L(*d['fan_ft']), color='#0044ff', lw=2.0, ls='--', label='flyer rarefaction: tail (sim)')
-    ax.plot(*L(*d['fan_th']), color='#00a000', lw=2.0, label='target rarefaction: head (sim)')
-    ax.plot(*L(*d['fan_tt']), color='#00a000', lw=2.0, ls='--', label='target rarefaction: tail (sim)')
-    if analytic is not None:
-        hr = np.r_[analytic['rel_f'][0], analytic['rel_t'][0]]
-        tr_ = np.r_[analytic['rel_f'][1], analytic['rel_t'][1]]
-        ax.plot(*L(analytic['shock'][0], analytic['shock'][1]), 'k--', lw=1.8, label='shock (C+S·up)')
-        ax.plot(*L(hr, tr_), 'k-', lw=1.8, label='plastic release (C+2S·up)')
-        ax.plot(*L(analytic['elastic'][0], analytic['elastic'][1]), color='#ff8800', lw=2.0,
-                label=f"elastic release head (~HEL {analytic['HELT']:.2f} GPa)")
-        if analytic['e_catch_pt'] is not None:
-            xy = L(np.array([analytic['e_catch_pt'][0]]), np.array([analytic['e_catch_pt'][1]]))
-            ax.plot(xy[0], xy[1], 'o', color='#ff8800', ms=8, mec='k', zorder=5)
-    posline(0.0,        color='0.35', ls='-.', lw=1.2, label='flyer / target interface')
-    posline(d['h_ff'],  color='0.55', ls=':',  lw=1.2, label='flyer free surface')
-    posline(d['h_tf'],  color='k',    ls='--', lw=1.2, label='target free surface')
+    if show_lines:
+        def L(pos, tim):                 # (x, y) with the chosen orientation
+            return (tim, pos) if transpose else (pos, tim)
+        def posline(val, **kw):          # a constant-position reference line
+            (ax.axhline if transpose else ax.axvline)(val, **kw)
+        ax.plot(*L(*d['fan_fh']), color='#0044ff', lw=2.0, label='flyer rarefaction: head (sim)')
+        ax.plot(*L(*d['fan_ft']), color='#0044ff', lw=2.0, ls='--', label='flyer rarefaction: tail (sim)')
+        ax.plot(*L(*d['fan_th']), color='#00a000', lw=2.0, label='target rarefaction: head (sim)')
+        ax.plot(*L(*d['fan_tt']), color='#00a000', lw=2.0, ls='--', label='target rarefaction: tail (sim)')
+        if analytic is not None:
+            hr = np.r_[analytic['rel_f'][0], analytic['rel_t'][0]]
+            tr_ = np.r_[analytic['rel_f'][1], analytic['rel_t'][1]]
+            ax.plot(*L(analytic['shock'][0], analytic['shock'][1]), 'k--', lw=1.8, label='shock (C+S·up)')
+            ax.plot(*L(hr, tr_), 'k-', lw=1.8, label='plastic release (C+2S·up)')
+            ax.plot(*L(analytic['elastic'][0], analytic['elastic'][1]), color='#ff8800', lw=2.0,
+                    label=f"elastic release head (~HEL {analytic['HELT']:.2f} GPa)")
+            if analytic['e_catch_pt'] is not None:
+                xy = L(np.array([analytic['e_catch_pt'][0]]), np.array([analytic['e_catch_pt'][1]]))
+                ax.plot(xy[0], xy[1], 'o', color='#ff8800', ms=8, mec='k', zorder=5)
+        posline(0.0,        color='0.35', ls='-.', lw=1.2, label='flyer / target interface')
+        posline(d['h_ff'],  color='0.55', ls=':',  lw=1.2, label='flyer free surface')
+        posline(d['h_tf'],  color='k',    ls='--', lw=1.2, label='target free surface')
     prange = (d['h_ff'] - 0.05 * (d['h_tf'] - d['h_ff']), d['h_tf'] * 1.03)
     if transpose:
         ax.set_xlim(0, times.max()); ax.set_ylim(*prange); ax.invert_yaxis()
@@ -367,7 +410,7 @@ def _draw_xt_fans(ax, d, pressure_cmap, transpose=False, legend=True, fs=7, lege
     else:
         ax.set_xlim(*prange); ax.set_ylim(0, times.max())
         ax.set_xlabel('Initial Position (mm)'); ax.set_ylabel('Time (μs)')
-    if legend:
+    if legend and show_lines:
         ax.legend(loc=legend_loc, fontsize=fs)
     return qm
 
@@ -385,12 +428,14 @@ def plot_rarefaction_fans(pko, pressure_cmap, run=None, dpi=200):
     plt.show()
 
 
-def plot_xt_fsv_stack(pko, pressure_cmap, run=None, dpi=200):
+def plot_xt_fsv_stack(pko, pressure_cmap, run=None, dpi=200, show_lines=True):
     """Stacked figure relating the x-t diagram to the free-surface velocity:
     top = x-t stress map + wave tracking (time horizontal, position vertical with
     the target free surface at the bottom); bottom = free-surface velocity vs
     time on the SAME time axis. Vertical guide lines mark the wave arrivals that
-    produce the FSV features (shock breakout -> rise, spall -> pullback)."""
+    produce the FSV features (shock breakout -> rise, spall -> pullback).
+    If show_lines is False, all the calculated overlay lines/guides/legend are
+    skipped -- just the raw stress field and the free-surface velocity trace."""
     d = _compute_xt_fans(pko, run)
     if d is None:
         return
@@ -402,23 +447,24 @@ def plot_xt_fsv_stack(pko, pressure_cmap, run=None, dpi=200):
     o = np.argsort(tg); tg = tg[o]; fsv = fsv[o]
     # guide-line times: shock breakout, FSV peak, spall pull-back minimum
     guides = []
-    if d['analytic'] is not None and np.isfinite(d['analytic']['t_sfs']):
-        guides.append(('breakout', d['analytic']['t_sfs']))
-    if fsv.size > 5:
-        ipk = int(np.argmax(fsv)); guides.append(('peak', tg[ipk]))
-        seg = fsv[ipk:]
-        if seg.size > 2:
-            imin = ipk + int(np.argmin(seg))         # spall pull-back = velocity minimum after peak
-            if imin > ipk:
-                guides.append(('pull-back', tg[imin]))
+    if show_lines:
+        if d['analytic'] is not None and np.isfinite(d['analytic']['t_sfs']):
+            guides.append(('breakout', d['analytic']['t_sfs']))
+        if fsv.size > 5:
+            ipk = int(np.argmax(fsv)); guides.append(('peak', tg[ipk]))
+            seg = fsv[ipk:]
+            if seg.size > 2:
+                imin = ipk + int(np.argmin(seg))         # spall pull-back = velocity minimum after peak
+                if imin > ipk:
+                    guides.append(('pull-back', tg[imin]))
     # constrained_layout auto-spaces the panels so labels never collide
-    fig = plt.figure(figsize=(11, 13), dpi=dpi, constrained_layout=True)
-    gs = fig.add_gridspec(4, 1, height_ratios=[0.10, 3, 1.1, 1.1])
+    height_ratios = [0.10, 3, 1.1, 1.1] if show_lines else [0.10, 3, 1.1]
+    fig = plt.figure(figsize=(11, 13 if show_lines else 11), dpi=dpi, constrained_layout=True)
+    gs = fig.add_gridspec(len(height_ratios), 1, height_ratios=height_ratios)
     axC = fig.add_subplot(gs[0])                       # stress colorbar band (top)
     axT = fig.add_subplot(gs[1])
     axB = fig.add_subplot(gs[2], sharex=axT)
-    axL = fig.add_subplot(gs[3]); axL.axis('off')     # dedicated legend panel
-    qm = _draw_xt_fans(axT, d, pressure_cmap, transpose=True, legend=False)
+    qm = _draw_xt_fans(axT, d, pressure_cmap, transpose=True, legend=False, show_lines=show_lines)
     axT.tick_params(labelbottom=False)                # time labels only on the FSV panel below
     cb = fig.colorbar(qm, cax=axC, orientation='horizontal')
     _am = d['amax']                                   # clean ticks (asinh auto-ticks crowd at 0)
@@ -430,17 +476,19 @@ def plot_xt_fsv_stack(pko, pressure_cmap, run=None, dpi=200):
     axB.set_xlabel('Time (μs)'); axB.set_ylabel('Free surface\nvelocity (m/s)')
     axB.grid(True, alpha=0.3)
     axB.set_xlim(0, times.max())
-    for lbl, t in guides:                            # vertical guides across both panels
-        axT.axvline(t, color='0.5', ls='--', lw=1.0, alpha=0.8)
-        axB.axvline(t, color='0.5', ls='--', lw=1.0, alpha=0.8)
-        axB.annotate(lbl, xy=(t, 1.0), xycoords=('data', 'axes fraction'),
-                     xytext=(2, -2), textcoords='offset points', fontsize=9,
-                     rotation=90, va='top', ha='left', color='0.35')
-    # collect all handles/labels (x-t panel + FSV) into the legend-only panel
-    hs, ls_ = axT.get_legend_handles_labels()
-    hb, lb = axB.get_legend_handles_labels()
-    axL.legend(hs + hb, ls_ + lb, loc='center', ncol=3, fontsize=12,
-               frameon=False, handlelength=2.5, columnspacing=1.8)
+    if show_lines:
+        axL = fig.add_subplot(gs[3]); axL.axis('off')  # dedicated legend panel
+        for lbl, t in guides:                            # vertical guides across both panels
+            axT.axvline(t, color='0.5', ls='--', lw=1.0, alpha=0.8)
+            axB.axvline(t, color='0.5', ls='--', lw=1.0, alpha=0.8)
+            axB.annotate(lbl, xy=(t, 1.0), xycoords=('data', 'axes fraction'),
+                         xytext=(2, -2), textcoords='offset points', fontsize=9,
+                         rotation=90, va='top', ha='left', color='0.35')
+        # collect all handles/labels (x-t panel + FSV) into the legend-only panel
+        hs, ls_ = axT.get_legend_handles_labels()
+        hb, lb = axB.get_legend_handles_labels()
+        axL.legend(hs + hb, ls_ + lb, loc='center', ncol=3, fontsize=12,
+                   frameon=False, handlelength=2.5, columnspacing=1.8)
     plt.show()
 
 ########################################################################################################################
@@ -1042,9 +1090,11 @@ if ENABLE_SPALL_ANALYSIS:
         print(f"Using actual data ranges - Stress: [{pres_min:.2f}, {pres_max:.2f}] GPa, Density: [{density_min:.3f}, {density_max:.3f}]")
         print(f"Stress colormap: Red (tension) -> Gray (zero) -> Blue (compression)")
 
-        # Symmetric stress normalization: equal colormap range on both sides of zero
+        # Symmetric, zero-centered stress normalization: equal colormap range on
+        # both sides of zero, with an asinh stretch keeping low-stress contours
+        # visible instead of washed out near white.
         _stress_abs_max = max(abs(pres_min), abs(pres_max))
-        pressure_norm = colors.Normalize(vmin=-_stress_abs_max, vmax=_stress_abs_max)
+        pressure_norm = create_pressure_norm(-_stress_abs_max, _stress_abs_max)
 
         # Stress (Eulerian) - Custom colormap with symmetric zero-centered scaling
         xt_pres_eul = xt_pcolormesh(ax1, pko.pos, pko.pres, cmap=pressure_cmap,
@@ -1150,6 +1200,9 @@ if ENABLE_SPALL_ANALYSIS:
         # Stacked x-t diagram + free-surface velocity (related on a shared time axis)
         plot_xt_fsv_stack(pko, pressure_cmap, run)
 
+        # Same stacked figure, without the calculated overlay lines
+        plot_xt_fsv_stack(pko, pressure_cmap, run, show_lines=False)
+
     else:
         print("❌ NO SPALL DETECTED in this simulation.")
         print(f"   Density-based: No regions with ρ/ρ₀ < {spall_density_threshold:.3f}")
@@ -1166,9 +1219,11 @@ if ENABLE_SPALL_ANALYSIS:
         print(f"Using actual data ranges - Stress: [{pres_min:.2f}, {pres_max:.2f}] GPa, Density: [{density_min:.3f}, {density_max:.3f}]")
         print(f"Stress colormap: Red (tension) -> Gray (zero) -> Blue (compression)")
 
-        # Symmetric stress normalization: equal colormap range on both sides of zero
+        # Symmetric, zero-centered stress normalization: equal colormap range on
+        # both sides of zero, with an asinh stretch keeping low-stress contours
+        # visible instead of washed out near white.
         _stress_abs_max = max(abs(pres_min), abs(pres_max))
-        pressure_norm = colors.Normalize(vmin=-_stress_abs_max, vmax=_stress_abs_max)
+        pressure_norm = create_pressure_norm(-_stress_abs_max, _stress_abs_max)
 
         # EULERIAN X-T DIAGRAMS (no spall case)
         print("\nCreating comprehensive Eulerian x-t diagrams...")
@@ -1274,6 +1329,9 @@ if ENABLE_SPALL_ANALYSIS:
 
         # Stacked x-t diagram + free-surface velocity (related on a shared time axis)
         plot_xt_fsv_stack(pko, pressure_cmap, run)
+
+        # Same stacked figure, without the calculated overlay lines
+        plot_xt_fsv_stack(pko, pressure_cmap, run, show_lines=False)
 
 else:
     print("\n=== SPALL ANALYSIS DISABLED ===")
